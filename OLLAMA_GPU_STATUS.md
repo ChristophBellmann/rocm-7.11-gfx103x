@@ -66,7 +66,7 @@ sudo rm -rf /usr/local/bin/ollama /etc/systemd/system/ollama.service /usr/local/
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Reapply our ROCm configuration
-cd /home/hashcat/TheRock
+cd /home/christoph/make_my_gpu_useful/TheRock_gfx1031
 sudo ./configure_ollama.sh
 ```
 

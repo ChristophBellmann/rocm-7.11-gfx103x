@@ -94,6 +94,8 @@ cmake -B build -GNinja . \
 
 **Note**: The script requires sudo access to adjust the OOM score. If sudo is not available, the script will continue with a warning but without OOM protection.
 
+The helper now also exports the bundled `third-party/sysdeps/linux/libdrm/.../include` and `lib/rocm_sysdeps/lib` paths so any component that #includes `<libdrm/drm.h>` (rocm-smi, rocblas, etc.) can compile without needing the system `libdrm` development packages.
+
 ## Expected Results
 
 ### Before Changes

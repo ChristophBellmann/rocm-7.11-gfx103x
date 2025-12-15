@@ -42,11 +42,9 @@ list(APPEND _blas_subproject_names hipBLAS-common)
 # rocRoller
 ##############################################################################
 
-if(WIN32)
-  set(_enable_rocRoller "OFF")
-else()
-  set(_enable_rocRoller "ON")
-endif()
+# ROCm's rocRoller tooling pulls in mxDataGenerator/OpenMP.  For the low-memory
+# gfx1031 profile we disable it to avoid forcing OpenMP into the build.
+set(_enable_rocRoller "OFF")
 
 if(_enable_rocRoller)
   therock_cmake_subproject_declare(rocRoller
@@ -117,27 +115,30 @@ if(_enable_rocRoller)
   )
 endif()
 
-therock_cmake_subproject_declare(hipBLASLt
-  EXTERNAL_SOURCE_DIR "${THEROCK_ROCM_LIBRARIES_SOURCE_DIR}/projects/hipblaslt"
-  BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/hipBLASLt"
-  BACKGROUND_BUILD
-  CMAKE_ARGS
+    therock_cmake_subproject_declare(hipBLASLt
+      EXTERNAL_SOURCE_DIR "${THEROCK_ROCM_LIBRARIES_SOURCE_DIR}/projects/hipblaslt"
+      BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/hipBLASLt"
+      BACKGROUND_BUILD
+      CMAKE_ARGS
     -DHIP_PLATFORM=amd
     -DHIPBLASLT_ENABLE_BLIS=OFF  # TODO: Evaluate
     -DTENSILELITE_BUILD_TESTING=OFF
     -DHIPBLASLT_BUILD_TESTING=${THEROCK_BUILD_TESTING}
     -DHIPBLASLT_ENABLE_ROCROLLER=${_enable_rocRoller}
     -DHIPBLASLT_ENABLE_FETCH=OFF
+    -DHIPBLASLT_ENABLE_CLIENT=OFF
+    -DHIPBLASLT_ENABLE_OPENMP=OFF
     -DHIPBLASLT_ENABLE_THEROCK=ON
   CMAKE_INCLUDES
     therock_explicit_finders.cmake
   COMPILER_TOOLCHAIN
     amd-hip
-  BUILD_DEPS
-    hipBLAS-common
-    rocm-cmake
-    therock-googletest
-    therock-msgpack-cxx
+      BUILD_DEPS
+        hipBLAS-common
+        rocm-cmake
+        therock-boost
+        therock-googletest
+        therock-msgpack-cxx
     ${hipBLASLt_rocRoller_build_deps}
   RUNTIME_DEPS
     hip-clr
@@ -186,6 +187,7 @@ therock_cmake_subproject_declare(rocBLAS
     -DBUILD_CLIENTS_TESTS=${THEROCK_BUILD_TESTING}
     -DBUILD_CLIENTS_BENCHMARKS=${THEROCK_BUILD_TESTING}
     -DLINK_BLIS=OFF
+    -DBUILD_CLIENTS_OPENMP=OFF
   CMAKE_INCLUDES
     therock_explicit_finders.cmake
   COMPILER_TOOLCHAIN
@@ -286,45 +288,63 @@ if(THEROCK_ENABLE_SPARSE)
   ##############################################################################
 
   if(NOT WIN32) # Remove this block once hipSPARSELt is supported on Windows
-    set(hipSPARSELt_optional_deps)
-    if(NOT WIN32)
-      # hipSPARSELt is hard-coded to not expect rocm-smi on Windows.
-      list(APPEND hipSPARSELt_optional_deps
-        rocm_smi_lib
-      )
+    set(_hipSPARSELt_blocked FALSE)
+    get_property(_hipSPARSELt_excludes GLOBAL PROPERTY "THEROCK_AMDGPU_PROJECT_TARGET_EXCLUDES_hipSPARSELt")
+    if(_hipSPARSELt_excludes)
+      foreach(_hip_target ${THEROCK_AMDGPU_TARGETS})
+        if("${_hip_target}" IN_LIST _hipSPARSELt_excludes)
+          set(_hipSPARSELt_blocked TRUE)
+          break()
+        endif()
+      endforeach()
     endif()
 
-    therock_cmake_subproject_declare(hipSPARSELt
-      EXTERNAL_SOURCE_DIR "${THEROCK_ROCM_LIBRARIES_SOURCE_DIR}/projects/hipsparselt"
-      BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/hipSPARSELt"
-      BACKGROUND_BUILD
-      CMAKE_ARGS
-        -DHIP_PLATFORM=amd
-        -DHIPSPARSELT_BUILD_TESTING=${THEROCK_BUILD_TESTING}
-        -DHIPSPARSELT_ENABLE_BENCHMARKS=${THEROCK_BUILD_TESTING}
-        -DHIPSPARSELT_ENABLE_SAMPLES=OFF
-        -DHIPSPARSELT_ENABLE_FETCH=OFF
-        -DHIPSPARSELT_ENABLE_THEROCK=ON
-      COMPILER_TOOLCHAIN
-        amd-hip
-      BUILD_DEPS
-        rocm-cmake
-        hipSPARSE
-        therock-googletest
-        therock-msgpack-cxx
-      RUNTIME_DEPS
-        hip-clr
-        therock-host-blas
-        ${hipSPARSELt_optional_deps}
-        ${optional_profiler_deps}
-    )
-    therock_cmake_subproject_glob_c_sources(hipSPARSELt
-      SUBDIRS
-        .
-    )
-    therock_cmake_subproject_provide_package(hipSPARSELt hipsparselt lib/cmake/hipsparselt)
-    therock_cmake_subproject_activate(hipSPARSELt)
-    list(APPEND _blas_subproject_names hipSPARSELt)
+    if(_hipSPARSELt_blocked)
+      message(STATUS "Skipping hipSPARSELt because gfx target ${THEROCK_AMDGPU_TARGETS} is excluded.")
+    else()
+      set(hipSPARSELt_optional_deps)
+      if(NOT WIN32)
+        # hipSPARSELt is hard-coded to not expect rocm-smi on Windows.
+        list(APPEND hipSPARSELt_optional_deps
+          rocm_smi_lib
+        )
+      endif()
+
+      therock_cmake_subproject_declare(hipSPARSELt
+        EXTERNAL_SOURCE_DIR "${THEROCK_ROCM_LIBRARIES_SOURCE_DIR}/projects/hipsparselt"
+        BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/hipSPARSELt"
+        BACKGROUND_BUILD
+        CMAKE_ARGS
+          -DHIP_PLATFORM=amd
+          -DHIPSPARSELT_BUILD_TESTING=${THEROCK_BUILD_TESTING}
+          -DHIPSPARSELT_ENABLE_BENCHMARKS=${THEROCK_BUILD_TESTING}
+          -DHIPSPARSELT_ENABLE_SAMPLES=OFF
+          -DHIPSPARSELT_ENABLE_FETCH=OFF
+          -DHIPSPARSELT_ENABLE_THEROCK=ON
+          -DHIPSPARSELT_ENABLE_OPENMP=OFF
+          -DHIPSPARSELT_ENABLE_CLIENT=OFF
+          -DGPU_TARGETS=${THEROCK_AMDGPU_TARGETS}
+        COMPILER_TOOLCHAIN
+          amd-hip
+        BUILD_DEPS
+          rocm-cmake
+          hipSPARSE
+          therock-googletest
+          therock-msgpack-cxx
+        RUNTIME_DEPS
+          hip-clr
+          therock-host-blas
+          ${hipSPARSELt_optional_deps}
+          ${optional_profiler_deps}
+      )
+      therock_cmake_subproject_glob_c_sources(hipSPARSELt
+        SUBDIRS
+          .
+      )
+      therock_cmake_subproject_provide_package(hipSPARSELt hipsparselt lib/cmake/hipsparselt)
+      therock_cmake_subproject_activate(hipSPARSELt)
+      list(APPEND _blas_subproject_names hipSPARSELt)
+    endif()
   endif()
 endif(THEROCK_ENABLE_SPARSE)
 

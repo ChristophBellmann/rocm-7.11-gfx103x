@@ -5,7 +5,7 @@
 To install your TheRock build system-wide to `/opt/rocm`, simply run:
 
 ```bash
-sudo bash /home/hashcat/TheRock/install_systemwide.sh
+sudo bash /home/christoph/make_my_gpu_useful/TheRock_gfx1031/install_systemwide.sh
 ```
 
 Enter your password when prompted. The script will:
@@ -107,7 +107,7 @@ sudo mv /opt/rocm /opt/rocm.backup.$(date +%Y%m%d_%H%M%S)
 ### 2. Copy TheRock Build
 
 ```bash
-sudo cp -a /home/hashcat/TheRock/build/dist/rocm /opt/rocm
+sudo cp -a /home/christoph/make_my_gpu_useful/TheRock_gfx1031/build/dist/rocm /opt/rocm
 ```
 
 ### 3. Set Permissions
@@ -279,7 +279,7 @@ ______________________________________________________________________
 
 ## Installation Size
 
-- Source: `/home/hashcat/TheRock/build/dist/rocm` (2.4GB)
+- Source: `/home/christoph/make_my_gpu_useful/TheRock_gfx1031/build/dist/rocm` (2.4GB)
 - Target: `/opt/rocm` (2.4GB)
 - Backup: `/opt/rocm.backup.TIMESTAMP` (size varies)
 
@@ -292,7 +292,7 @@ ______________________________________________________________________
 Run this command:
 
 ```bash
-sudo bash /home/hashcat/TheRock/install_systemwide.sh
+sudo bash /home/christoph/make_my_gpu_useful/TheRock_gfx1031/install_systemwide.sh
 ```
 
 The script is safe and includes:
@@ -308,4 +308,4 @@ The script is safe and includes:
 
 ______________________________________________________________________
 
-**Questions?** Check the script: `/home/hashcat/TheRock/install_systemwide.sh`
+**Questions?** Check the script: `/home/christoph/make_my_gpu_useful/TheRock_gfx1031/install_systemwide.sh`

@@ -81,7 +81,7 @@ ______________________________________________________________________
 ### GPU Detection Test
 
 ```bash
-$ /home/hashcat/TheRock/build/dist/rocm/bin/rocminfo | grep -A 5 "Name.*gfx"
+$ /home/christoph/make_my_gpu_useful/TheRock_gfx1031/build/dist/rocm/bin/rocminfo | grep -A 5 "Name.*gfx"
 
   Name:                    gfx1031
   Uuid:                    GPU-XX
@@ -95,7 +95,7 @@ $ /home/hashcat/TheRock/build/dist/rocm/bin/rocminfo | grep -A 5 "Name.*gfx"
 ### HIP Compiler Test
 
 ```bash
-$ /home/hashcat/TheRock/build/dist/rocm/bin/hipcc --version
+$ /home/christoph/make_my_gpu_useful/TheRock_gfx1031/build/dist/rocm/bin/hipcc --version
 
 HIP version: 7.1.25415-0ea9b0d7ec
 AMD clang version 20.0.0git
@@ -111,7 +111,7 @@ Your `~/.bashrc` has been configured with:
 
 ```bash
 # ROCm Environment Variables for TheRock Build
-export ROCM_PATH=/home/hashcat/TheRock/build/dist/rocm
+export ROCM_PATH=/home/christoph/make_my_gpu_useful/TheRock_gfx1031/build/dist/rocm
 export HIP_PATH=$ROCM_PATH
 export PATH=$ROCM_PATH/bin:$PATH
 export LD_LIBRARY_PATH=$ROCM_PATH/lib:$LD_LIBRARY_PATH
@@ -142,7 +142,7 @@ ______________________________________________________________________
 Your ROCm build is located at:
 
 ```
-/home/hashcat/TheRock/build/dist/rocm/
+/home/christoph/make_my_gpu_useful/TheRock_gfx1031/build/dist/rocm/
 ```
 
 **Benefits of keeping it here**:
@@ -256,7 +256,7 @@ ______________________________________________________________________
 
 ```bash
 # Watch GPU usage in real-time
-watch -n 1 /home/hashcat/TheRock/build/dist/rocm/bin/rocm-smi
+watch -n 1 /home/christoph/make_my_gpu_useful/TheRock_gfx1031/build/dist/rocm/bin/rocm-smi
 
 # Check GPU temperature and clocks
 rocm-smi --showtemp --showclocks

@@ -77,8 +77,8 @@ curl -s http://127.0.0.1:8080/health
 **Process Running:**
 
 ```
-1207 /home/hashcat/llama.cpp/build/bin/llama-server
-     --model /home/hashcat/.lmstudio/models/lmstudio-community/Qwen2.5-0.5B-Instruct-GGUF/Qwen2.5-0.5B-Instruct-Q8_0.gguf
+1207 /home/christoph/llama.cpp/build/bin/llama-server
+     --model /home/christoph/.lmstudio/models/lmstudio-community/Qwen2.5-0.5B-Instruct-GGUF/Qwen2.5-0.5B-Instruct-Q8_0.gguf
      -ngl 99
      -c 16384
      --host 0.0.0.0

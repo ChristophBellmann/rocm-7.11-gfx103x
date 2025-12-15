@@ -90,7 +90,7 @@ detailed instructions. That information is summarized here.
 You will need a supported Python version (3.11+) on a system which we build the
 `rocm[libraries,devel]` packages for. See the
 [`RELEASES.md`: Installing releases using pip](../../RELEASES.md#installing-releases-using-pip)
-and [Python Packaging](../../docs/packaging/python_packaging.md) documentation
+and [Python Packaging](../../docs/upstream/packaging/python_packaging.md) documentation
 for more background on these `rocm` packages.
 
 > [!WARNING]

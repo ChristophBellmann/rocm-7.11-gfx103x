@@ -23,6 +23,23 @@ set_property(GLOBAL PROPERTY THEROCK_DEFAULT_CMAKE_VARS
   THEROCK_BUILD_TESTING
   THEROCK_USE_SAFE_DEPENDENCY_PROVIDER
   ROCM_SYMLINK_LIBS
+  ROCM_PATH
+  HIP_PATH
+  ROCM_PATH
+  HIP_PATH
+
+  # Pass build-client toggles down to subprojects so they can skip expensive tests.
+  BUILD_CLIENTS
+  BUILD_CLIENTS_TESTS
+  BUILD_CLIENTS_SAMPLES
+  BUILD_CLIENTS_BENCH
+  BUILD_CLIENTS_TESTS_OPENMP
+  BUILD_TESTING
+  ROCROLLER_BUILD_TESTING
+  ROCROLLER_ENABLE_CATCH
+  ROCROLLER_ENABLE_TEST_DISCOVERY
+  ROCROLLER_ENABLE_GEMM_CLIENT_TESTS
+  BUILD_WITH_HIPBLASLT
 
   # RPATH handling.
   THEROCK_NO_INSTALL_RPATH
@@ -608,16 +625,9 @@ function(therock_cmake_subproject_activate target_name)
   # uncontrolled (and likely incompatible) sources.
   #
   # These environment variables have been used by some subprojects to discover
-  # preexisting ROCm/HIP SDK installs. If detected, these subprojects then do
-  # things like:
-  #   * Append `${HIP_PATH}/cmake` to `CMAKE_MODULE_PATH`
-  #   * Use `${HIP_PATH}` as a hint for `find_package()` calls
-  # We unset both the CMake and environment variables with these names.
-  # See also https://github.com/ROCm/TheRock/issues/670.
-  list(APPEND _build_env_pairs "--unset=ROCM_PATH")
-  list(APPEND _build_env_pairs "--unset=ROCM_DIR")
-  list(APPEND _build_env_pairs "--unset=HIP_PATH")
-  list(APPEND _build_env_pairs "--unset=HIP_DIR")
+  # preexisting ROCm/HIP SDK installs. If detected, these subprojects may try
+  # to search outside the build tree. Because we start each build with our own
+  # ROCm path set in the shell, keeping the variables intact is sufficient.
 
   # Handle compiler toolchain.
   set(_compiler_toolchain_addl_depends)

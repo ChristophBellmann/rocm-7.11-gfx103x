@@ -121,7 +121,7 @@ The discrepancy between "100% CPU" in `ollama ps` and actual GPU VRAM usage (8.7
 1. **Solution**
 
    - Restart Ollama to pick up new `/opt/rocm`
-   - Script created: `/home/hashcat/TheRock/restart_ollama_with_new_rocm.sh`
+   - Script created: `/home/christoph/make_my_gpu_useful/TheRock_gfx1031/restart_ollama_with_new_rocm.sh`
 
 ______________________________________________________________________
 
@@ -132,7 +132,7 @@ ______________________________________________________________________
 Run the restart script with sudo:
 
 ```bash
-sudo bash /home/hashcat/TheRock/restart_ollama_with_new_rocm.sh
+sudo bash /home/christoph/make_my_gpu_useful/TheRock_gfx1031/restart_ollama_with_new_rocm.sh
 ```
 
 This will:
@@ -285,7 +285,7 @@ ______________________________________________________________________
 **To enable full GPU acceleration:**
 
 ```bash
-sudo bash /home/hashcat/TheRock/restart_ollama_with_new_rocm.sh
+sudo bash /home/christoph/make_my_gpu_useful/TheRock_gfx1031/restart_ollama_with_new_rocm.sh
 ```
 
 This will give you 2-4x faster inference with full gfx1031 optimization!

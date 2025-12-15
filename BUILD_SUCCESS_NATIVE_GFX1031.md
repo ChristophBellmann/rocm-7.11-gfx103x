@@ -36,7 +36,7 @@ To successfully build on 31GB RAM + 8GB swap, the following optimizations were c
 - **Sanitizers disabled** - ASAN, XRAY, LIBFUZZER, PROFILE, MEMPROF, ORC all disabled
 - **OpenMP device runtimes disabled** - Not needed for basic ROCm functionality
 
-Modified file: `/home/hashcat/TheRock/compiler/pre_hook_amd-llvm.cmake`
+Modified file: `/home/christoph/TheRock/compiler/pre_hook_amd-llvm.cmake`
 
 ______________________________________________________________________
 
@@ -45,20 +45,20 @@ ______________________________________________________________________
 ### Built ROCm Location
 
 ```
-/home/hashcat/TheRock/build/dist/rocm/
+/home/christoph/TheRock/build/dist/rocm/
 ```
 
 ### Key Binaries
 
-- **rocminfo**: `/home/hashcat/TheRock/build/dist/rocm/bin/rocminfo`
-- **hipcc**: `/home/hashcat/TheRock/build/dist/rocm/bin/hipcc`
-- **hipconfig**: `/home/hashcat/TheRock/build/dist/rocm/bin/hipconfig`
+- **rocminfo**: `/home/christoph/TheRock/build/dist/rocm/bin/rocminfo`
+- **hipcc**: `/home/christoph/TheRock/build/dist/rocm/bin/hipcc`
+- **hipconfig**: `/home/christoph/TheRock/build/dist/rocm/bin/hipconfig`
 
 ### Libraries
 
-- **ROCm libs**: `/home/hashcat/TheRock/build/dist/rocm/lib/`
-- **64-bit libs**: `/home/hashcat/TheRock/build/dist/rocm/lib64/`
-- **LLVM libs**: `/home/hashcat/TheRock/build/dist/rocm/lib/llvm/`
+- **ROCm libs**: `/home/christoph/TheRock/build/dist/rocm/lib/`
+- **64-bit libs**: `/home/christoph/TheRock/build/dist/rocm/lib64/`
+- **LLVM libs**: `/home/christoph/TheRock/build/dist/rocm/lib/llvm/`
 
 ______________________________________________________________________
 
@@ -68,7 +68,7 @@ ______________________________________________________________________
 
 ```bash
 # Load the TheRock environment with native gfx1031
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 
 # Verify GPU detection
 rocminfo | grep -A 5 "Marketing Name"
@@ -79,13 +79,13 @@ rocminfo | grep -A 5 "Marketing Name"
 
 ```bash
 # Load TheRock environment first
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 
 # Start Ollama (it will use the TheRock ROCm)
 ollama serve
 
 # In another terminal
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 ollama run llama3.2
 ```
 
@@ -95,7 +95,7 @@ LM Studio needs to be pointed to the TheRock ROCm:
 
 ```bash
 # Load environment before starting LM Studio
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 lms
 ```
 
@@ -122,7 +122,7 @@ Marketing Name: AMD Radeon RX 6700 XT
 
 gfx1031 kernels found in:
 
-- `/home/hashcat/TheRock/build/dist/rocm/lib/rocblas/library/`
+- `/home/christoph/TheRock/build/dist/rocm/lib/rocblas/library/`
 - `TensileLibrary_lazy_gfx1031.dat`
 - Multiple `*_gfx1031.hsaco` kernel files
 
@@ -143,7 +143,7 @@ ______________________________________________________________________
 **How to use**:
 
 ```bash
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 ollama serve
 ```
 
@@ -154,7 +154,7 @@ ollama serve
 **How to use**:
 
 ```bash
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 lms
 ```
 
@@ -165,7 +165,7 @@ lms
 **How to use**:
 
 ```bash
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 # Build llama.cpp with TheRock ROCm
 cd ~/llama.cpp
 make clean
@@ -190,7 +190,7 @@ env | grep HSA_OVERRIDE
 unset HSA_OVERRIDE_GFX_VERSION
 
 # Or source the TheRock environment which unsets it
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 ```
 
 ### Issue: Ollama not detecting GPU
@@ -201,11 +201,11 @@ source /home/hashcat/rocm-env-therock.sh
 
 ```bash
 # Make sure TheRock environment is loaded first
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 
 # Check which rocminfo is being used
 which rocminfo
-# Should show: /home/hashcat/TheRock/build/dist/rocm/bin/rocminfo
+# Should show: /home/christoph/TheRock/build/dist/rocm/bin/rocminfo
 
 # Restart Ollama service
 systemctl --user restart ollama
@@ -220,10 +220,10 @@ systemctl --user restart ollama
 ```bash
 # Verify library path
 echo $LD_LIBRARY_PATH | grep TheRock
-# Should contain: /home/hashcat/TheRock/build/dist/rocm/lib
+# Should contain: /home/christoph/TheRock/build/dist/rocm/lib
 
 # Re-source environment
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 ```
 
 ______________________________________________________________________
@@ -260,7 +260,7 @@ ______________________________________________________________________
 ### 1. Test Native gfx1031 Detection
 
 ```bash
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 rocminfo | grep "Name:" | head -3
 ```
 
@@ -274,7 +274,7 @@ Name: gfx1031
 ### 2. Test with Ollama
 
 ```bash
-source /home/hashcat/rocm-env-therock.sh
+source /home/christoph/rocm-env-therock.sh
 systemctl --user restart ollama
 ollama run llama3.2
 ```
@@ -295,7 +295,7 @@ If you want to replace `/opt/rocm` with the TheRock build:
 sudo mv /opt/rocm /opt/rocm.old
 
 # Link TheRock build
-sudo ln -s /home/hashcat/TheRock/build/dist/rocm /opt/rocm
+sudo ln -s /home/christoph/TheRock/build/dist/rocm /opt/rocm
 
 # Update system environment
 sudo tee /etc/profile.d/rocm-therock.sh << 'EOF'
@@ -313,20 +313,20 @@ ______________________________________________________________________
 
 ### Log Files
 
-- `/home/hashcat/TheRock/build_continue_j8.log` - Full build log
-- `/home/hashcat/TheRock/build_no_flang.log` - Low-memory build attempt
+- `/home/christoph/TheRock/build_continue_j8.log` - Full build log
+- `/home/christoph/TheRock/build_no_flang.log` - Low-memory build attempt
 
 ### CMake Configuration
 
-- `/home/hashcat/TheRock/build/CMakeCache.txt` - Build configuration
+- `/home/christoph/TheRock/build/CMakeCache.txt` - Build configuration
 
 ### Modified Files
 
-- `/home/hashcat/TheRock/compiler/pre_hook_amd-llvm.cmake` - Low-memory optimizations
+- `/home/christoph/TheRock/compiler/pre_hook_amd-llvm.cmake` - Low-memory optimizations
 
 ### Environment Scripts
 
-- `/home/hashcat/rocm-env-therock.sh` - TheRock environment loader
+- `/home/christoph/rocm-env-therock.sh` - TheRock environment loader
 
 ______________________________________________________________________
 
@@ -367,7 +367,7 @@ ______________________________________________________________________
 
 Your AMD RX 6700 XT (gfx1031) now has native ROCm support built from source. Enjoy better compatibility with Ollama, LM Studio, and llama.cpp!
 
-**Questions or issues?** Check the logs in `/home/hashcat/TheRock/` or reopen this document.
+**Questions or issues?** Check the logs in `/home/christoph/TheRock/` or reopen this document.
 
 ______________________________________________________________________
 

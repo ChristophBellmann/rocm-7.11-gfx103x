@@ -64,4 +64,4 @@ go generate ./... && go build .
 sudo cp ollama /usr/local/bin/ollama
 ```
 
-Full guide: `/home/hashcat/TheRock/OLLAMA_GPU_STATUS.md`
+Full guide: `/home/christoph/make_my_gpu_useful/TheRock_gfx1031/OLLAMA_GPU_STATUS.md`

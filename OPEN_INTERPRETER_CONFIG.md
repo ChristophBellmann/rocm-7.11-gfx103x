@@ -72,7 +72,7 @@ open-interpreter
 
 ```bash
 # If you want full control over flags
-source /home/hashcat/TheRock/.venv/bin/activate
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate
 interpreter --api_base http://localhost:8080/v1 --model llama
 ```
 
@@ -158,7 +158,7 @@ llama-logs        # View server logs
 oi "print('Hello from GPU!')"
 
 # Or manually:
-source /home/hashcat/TheRock/.venv/bin/activate
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate
 interpreter --version
 ```
 
@@ -234,8 +234,8 @@ export INTERPRETER_CLI_AUTO_RUN=false
 export INTERPRETER_CLI_SAFE_MODE="auto"
 
 # Aliases (lines 297-298)
-alias oi="source /home/hashcat/TheRock/.venv/bin/activate && PYTHONWARNINGS='ignore' interpreter -y --api_base http://localhost:8080/v1 --model llama"
-alias open-interpreter="source /home/hashcat/TheRock/.venv/bin/activate && PYTHONWARNINGS='ignore' interpreter --api_base http://localhost:8080/v1 --model llama"
+alias oi="source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate && PYTHONWARNINGS='ignore' interpreter -y --api_base http://localhost:8080/v1 --model llama"
+alias open-interpreter="source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate && PYTHONWARNINGS='ignore' interpreter --api_base http://localhost:8080/v1 --model llama"
 ```
 
 ### ~/.zshrc
@@ -249,8 +249,8 @@ export INTERPRETER_CLI_AUTO_RUN=false
 export INTERPRETER_CLI_SAFE_MODE="auto"
 
 # Aliases (lines 345-346)
-alias oi="source /home/hashcat/TheRock/.venv/bin/activate && PYTHONWARNINGS='ignore' interpreter -y --api_base http://localhost:8080/v1 --model llama"
-alias open-interpreter="source /home/hashcat/TheRock/.venv/bin/activate && PYTHONWARNINGS='ignore' interpreter --api_base http://localhost:8080/v1 --model llama"
+alias oi="source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate && PYTHONWARNINGS='ignore' interpreter -y --api_base http://localhost:8080/v1 --model llama"
+alias open-interpreter="source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate && PYTHONWARNINGS='ignore' interpreter --api_base http://localhost:8080/v1 --model llama"
 ```
 
 ______________________________________________________________________
@@ -350,7 +350,7 @@ llama-status
 
 ```bash
 # Manually activate venv
-source /home/hashcat/TheRock/.venv/bin/activate
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate
 
 # Check interpreter installed
 which interpreter

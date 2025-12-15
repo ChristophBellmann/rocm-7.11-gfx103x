@@ -57,7 +57,7 @@ Environment="HSA_OVERRIDE_GFX_VERSION=10.3.0"
 
 ```bash
 # Before launching LM Studio:
-source /home/hashcat/TheRock/rocm-env-compat.sh
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-env-compat.sh
 lmstudio
 ```
 
@@ -69,7 +69,7 @@ lmstudio
 
 ```bash
 # Setup native environment
-source /home/hashcat/TheRock/rocm-env-native.sh
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-env-native.sh
 
 # Clone and build
 git clone https://github.com/ggerganov/llama.cpp.git
@@ -97,8 +97,8 @@ cmake --build . --config Release -j$(nproc)
 # THEROCK_AMDGPU_TARGETS=gfx1031
 
 # For future builds:
-source /home/hashcat/TheRock/rocm-env-native.sh
-cd /home/hashcat/TheRock
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-env-native.sh
+cd /home/christoph/make_my_gpu_useful/TheRock_gfx1031
 cmake --build build
 ```
 
@@ -110,11 +110,11 @@ cmake --build build
 
 ```bash
 # Official PyTorch ROCm binaries:
-source /home/hashcat/TheRock/rocm-env-compat.sh
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-env-compat.sh
 pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
 
 # Building PyTorch from source:
-source /home/hashcat/TheRock/rocm-env-native.sh
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-env-native.sh
 # Then follow PyTorch build instructions with PYTORCH_ROCM_ARCH=gfx1031
 ```
 
@@ -127,20 +127,20 @@ I've created convenient scripts for you:
 ### Check Current Configuration
 
 ```bash
-source /home/hashcat/TheRock/rocm-switch.sh check
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh check
 ```
 
 ### Switch to Native Mode (for source builds)
 
 ```bash
-source /home/hashcat/TheRock/rocm-switch.sh native
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh native
 # Now HSA_OVERRIDE is unset - uses native gfx1031
 ```
 
 ### Switch to Compatibility Mode (for pre-built binaries)
 
 ```bash
-source /home/hashcat/TheRock/rocm-switch.sh compat
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh compat
 # Now HSA_OVERRIDE_GFX_VERSION=10.3.0 is set
 ```
 
@@ -148,9 +148,9 @@ source /home/hashcat/TheRock/rocm-switch.sh compat
 
 ```bash
 # Add this to your ~/.bashrc for easy switching:
-alias rocm-native='source /home/hashcat/TheRock/rocm-switch.sh native'
-alias rocm-compat='source /home/hashcat/TheRock/rocm-switch.sh compat'
-alias rocm-check='source /home/hashcat/TheRock/rocm-switch.sh check'
+alias rocm-native='source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh native'
+alias rocm-compat='source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh compat'
+alias rocm-check='source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh check'
 ```
 
 ______________________________________________________________________
@@ -223,9 +223,9 @@ export HIP_VISIBLE_DEVICES=0
 export HSA_OVERRIDE_GFX_VERSION=10.3.0
 
 # Convenient aliases for switching
-alias rocm-native='source /home/hashcat/TheRock/rocm-switch.sh native'
-alias rocm-compat='source /home/hashcat/TheRock/rocm-switch.sh compat'
-alias rocm-check='source /home/hashcat/TheRock/rocm-switch.sh check'
+alias rocm-native='source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh native'
+alias rocm-compat='source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh compat'
+alias rocm-check='source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh check'
 
 # Show current mode on shell startup
 echo "ROCm: $([ -n "$HSA_OVERRIDE_GFX_VERSION" ] && echo "Compat mode (gfx1030)" || echo "Native mode (gfx1031)")"
@@ -238,10 +238,10 @@ ______________________________________________________________________
 ### Test 1: Verify Native gfx1031 Works
 
 ```bash
-source /home/hashcat/TheRock/rocm-switch.sh native
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh native
 
 # Simple HIP test
-cd /home/hashcat/TheRock
+cd /home/christoph/make_my_gpu_useful/TheRock_gfx1031
 hipcc test_hip.cpp -o test_hip_native
 ./test_hip_native
 
@@ -251,7 +251,7 @@ hipcc test_hip.cpp -o test_hip_native
 ### Test 2: Verify Override Works
 
 ```bash
-source /home/hashcat/TheRock/rocm-switch.sh compat
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh compat
 
 # Check HSA reports gfx1030
 rocminfo | grep "Name:" | grep gfx
@@ -261,8 +261,8 @@ rocminfo | grep "Name:" | grep gfx
 ### Test 3: TheRock Build with Native Target
 
 ```bash
-source /home/hashcat/TheRock/rocm-switch.sh native
-cd /home/hashcat/TheRock
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh native
+cd /home/christoph/make_my_gpu_useful/TheRock_gfx1031
 
 # Check current build config
 cat build/CMakeCache.txt | grep THEROCK_AMDGPU_TARGETS
@@ -305,7 +305,7 @@ ______________________________________________________________________
 **Solution**: Use compat mode (gfx1030 override)
 
 ```bash
-source /home/hashcat/TheRock/rocm-switch.sh compat
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh compat
 ```
 
 ### Issue 2: Sub-optimal Performance in Custom Builds
@@ -314,7 +314,7 @@ source /home/hashcat/TheRock/rocm-switch.sh compat
 **Solution**: Rebuild with native target
 
 ```bash
-source /home/hashcat/TheRock/rocm-switch.sh native
+source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh native
 # Then rebuild llama.cpp with -DAMDGPU_TARGETS=gfx1031
 ```
 
@@ -348,10 +348,10 @@ ______________________________________________________________________
 1. **Use the switcher scripts** when building from source:
    ```bash
    # Building llama.cpp or similar
-   source /home/hashcat/TheRock/rocm-switch.sh native
+   source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh native
 
    # Running pre-built apps
-   source /home/hashcat/TheRock/rocm-switch.sh compat
+   source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/rocm-switch.sh compat
    ```
 1. **TheRock builds** are already optimal (native gfx1031)
 1. **Ollama service** is already correctly configured (gfx1030 override)

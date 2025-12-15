@@ -16,7 +16,7 @@ All systems tested and verified working:
 - **Status**: Running and healthy
 - **Health Check**: `{"status":"ok"}`
 - **Model**: DeepSeek-R1 (Qwen 0.5B)
-- **Process**: `/home/hashcat/llama.cpp/build/bin/llama-server`
+- **Process**: `/home/christoph/llama.cpp/build/bin/llama-server`
 
 ### ✓ LM Studio
 

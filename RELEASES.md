@@ -5,7 +5,7 @@ external builds like PyTorch. We produce build artifacts as part of our
 Continuous Integration (CI) build/test workflows as well as release artifacts as
 part of Continuous Delivery (CD) nightly releases. See also the
 [Roadmap for support](ROADMAP.md) and
-[Build artifacts overview](docs/development/artifacts.md) pages.
+[Build artifacts overview](docs/upstream/development/artifacts.md) pages.
 
 > [!WARNING]
 > These instructions assume familiarity with how to use ROCm. Please see
@@ -87,7 +87,7 @@ project layouts.**
 
 We provide several Python packages which together form the complete ROCm SDK.
 
-- See [ROCm Python Packaging via TheRock](./docs/packaging/python_packaging.md)
+- See [ROCm Python Packaging via TheRock](./docs/upstream/packaging/python_packaging.md)
   for information about the each package.
 - The packages are defined in the
   [`build_tools/packaging/python/templates/`](https://github.com/ROCm/TheRock/tree/main/build_tools/packaging/python/templates)
@@ -376,8 +376,8 @@ instructions in the AMD ROCm documentation.
 
 ## Installing from tarballs
 
-Standalone "ROCm SDK tarballs" are assembled from the same
-[artifacts](docs/development/artifacts.md) as the Python packages which can be
+-Standalone "ROCm SDK tarballs" are assembled from the same
+[artifacts](docs/upstream/development/artifacts.md) as the Python packages which can be
 [installed using pip](#installing-releases-using-pip), without the additional
 wrapper Python wheels or utility scripts.
 

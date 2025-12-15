@@ -4,7 +4,7 @@
 
 # therock_provide_artifact
 # This populates directories under build/artifacts representing specific
-# subsets of the install tree. See docs/development/artifacts.md for further
+# subsets of the install tree. See docs/upstream/development/artifacts.md for further
 # design notes on the subsystem.
 #
 # While artifacts are the primary output of the build system, it is often

@@ -17,7 +17,7 @@ Your TheRock build includes:
 Run the installation script:
 
 ```bash
-cd /home/hashcat/TheRock
+cd /home/christoph/make_my_gpu_useful/TheRock_gfx1031
 sudo ./install_to_opt_rocm.sh
 ```
 
@@ -65,7 +65,7 @@ hipcc --version
 Run the Ollama update script:
 
 ```bash
-cd /home/hashcat/TheRock
+cd /home/christoph/make_my_gpu_useful/TheRock_gfx1031
 ./update_ollama_rocm.sh
 ```
 
@@ -287,7 +287,7 @@ Recommended model sizes for 12GB VRAM:
 To rebuild and update your system ROCm:
 
 ```bash
-cd /home/hashcat/TheRock
+cd /home/christoph/make_my_gpu_useful/TheRock_gfx1031
 
 # Pull latest changes
 git pull

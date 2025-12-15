@@ -5,7 +5,7 @@ distribution as Python packages and builds sdists and wheels as appropriate.
 Under Linux, it is standard to run this under an appropriate manylinux container
 for producing portable binaries. On Windows, it can be run natively.
 
-See docs/packaging/python_packaging.md for more information.
+See docs/upstream/packaging/python_packaging.md for more information.
 
 Example
 -------

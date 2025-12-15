@@ -36,7 +36,7 @@ echo "✓ All dependencies found"
 echo ""
 
 # Create build directory
-BUILD_DIR="/home/hashcat/ollama-rocm-build"
+BUILD_DIR="/home/christoph/ollama-rocm-build"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 

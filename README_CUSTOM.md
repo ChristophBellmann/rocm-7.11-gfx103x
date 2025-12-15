@@ -114,6 +114,31 @@ sudo cmake --install build --prefix /opt/rocm
 bash build_low_memory.sh
 ```
 
+**System status:** `build_low_memory.sh` is now gfx1031-aware—before invoking Ninja it drops the locally built HIP/ROCm tree into `PATH`/`LD_LIBRARY_PATH`, caps each job at ~8 GiB via `BUILD_MEM_LIMIT_KB` (we use `32505856` for Christoph's ~31 GiB machine), and forces `-j4 -l4` by default so the linker never spikes past the available RAM. The script now also exports the bundled `third-party/sysdeps/linux/libdrm/.../include` and `lib/rocm_sysdeps/lib` paths so `rocm-smi`, `rocblas`, and others find `libdrm/drm.h` without depending on existing `/opt/rocm` headers. The helper pre-creates the sparse `clients/matrices` directories, so the install step no longer fails when hipSPARSE or rocSPARSE try to stage clients.
+
+The tree now skips hipSPARSELt on gfx1031 builds (the target is marked in `cmake/therock_amdgpu_targets.cmake`), so no OpenMP/unsupported-target probing runs during the build. If you need hipSPARSELt on a future target, you can override that blocking list by editing `cmake/therock_amdgpu_targets.cmake` and removing the gfx1031 exclusion before re-running `cmake -B build ...`.
+
+When you need the ROCm benchmark clients (`rocblas-bench`, `rocfft-rider`, etc.) to appear in the staged tree, run `./build_enable_math_clients.sh` first. That helper reconfigures the tree with `BUILD_CLIENTS_*`/OpenMP enabled (while still honoring the low-memory caps), and then you rerun `BUILD_MEM_LIMIT_KB=32505856 ./build_low_memory.sh` so the heavier clients build under the same per-job/load limits.
+
+We tracked RAM during the rebuild (see `/tmp/ram-track-full.log`); four concurrent Clang jobs during the MiOpen/MiOpen_plugin phase topped out around 500 MiB each while the total system memory hovered near 5 GiB, so bumping `BUILD_JOBS`/`BUILD_LOAD_LIMIT` toward 6‑8 should still stay under 31 GiB if you want faster rebuilds.
+
+When you need the ROCm benchmark clients (`rocblas-bench`, `rocfft-rider`, etc.) to appear in the staged tree, run `./build_enable_math_clients.sh` first. That helper reconfigures the tree with `BUILD_CLIENTS_*`/OpenMP enabled (while still honoring the low-memory caps), and then you rerun `BUILD_MEM_LIMIT_KB=32505856 ./build_low_memory.sh` so the heavier clients build under the same per-job/load limits.
+
+We tracked RAM during the rebuild (see `/tmp/ram-track-full.log`); four concurrent clang jobs during the MiOpen/MiOpen_plugin phase topped out around 500 MiB each while the system only used ~5 GiB, so bumping `BUILD_JOBS`/`BUILD_LOAD_LIMIT` toward 6‑8 should still stay under 31 GiB if you want faster rebuilds.
+
+#### RAM tuning
+
+If you want to fully exercise the 31 GiB host, rerun `./build_low_memory.sh` while tailing `/tmp/ram-track-full.log` or running `watch -n 10 'free -h && ps --sort=-rss -eo pid,%mem,rss,cmd | head'`. Raise `BUILD_JOBS`/`BUILD_LOAD_LIMIT` in small steps and watch the top compiler/linker RSS; once each job approaches ~8 GiB, stop increasing the parallelism. Keeping `BUILD_MEM_LIMIT_KB=32505856` ensures no single job can overcommit RAM, so spread the load by adjusting the `-j` and `-l` knobs until you saturate the 31 GiB budget without triggering swap.
+
+#### Build checklist before system install
+
+1. **Tune RAM usage** – run `BUILD_JOBS=6` (or higher) with the RAM tracker until clang jobs stay below ~8 GiB each and no swap is used.  
+2. **Verify rocBLAS** – start with `rocblas-bench -f axpy -r f32_r -n 1` and increase `n` only if it completes without `rocblas_status_memory_error`; keep `/tmp/rocblas-axpy.log` handy to debug failures.  
+3. **Add rocFFT** – once the blas bench is stable rerun `./build_enable_math_clients.sh`, rebuild, and confirm `rocfft-rider` appears before running the FFT sanity command.  
+4. **System install (last step)** – when both bench clients succeed, execute `sudo ./install_systemwide.sh` and re-run `rocminfo`/`rocblas-bench` from `/opt/rocm` to confirm parity.
+
+See `BUILD_SUCCESS_NATIVE_GFX1031.md` for the complete configuration/optimization story (native gfx1031 target, compiler flags, low-memory profile, paths to `rocminfo`/`hipcc`/`hipconfig`, and the environment script). Use it as the canonical reference for what to verify in the built tree before touching `/opt/rocm`. For a quick automated sanity check use `./scripts/native_build_check.sh`; it reuses these paths and records failures in `/tmp/rocblas-axpy.log` so you know exactly when the native build passes or still needs tuning.
+
 See **[LOW_MEMORY_BUILD.md](LOW_MEMORY_BUILD.md)** for details.
 
 ______________________________________________________________________
@@ -123,10 +148,12 @@ ______________________________________________________________________
 ### Build & Installation
 
 - **[BUILD_SUCCESS_NATIVE_GFX1031.md](BUILD_SUCCESS_NATIVE_GFX1031.md)** - Verified build log
+- **[BUILD_SUCCESS_SYSTEM.md](BUILD_SUCCESS_SYSTEM.md)** - This repo’s latest gfx1031 low-memory/build+install success story
 - **[INSTALL_INSTRUCTIONS.md](INSTALL_INSTRUCTIONS.md)** - Complete setup guide
 - **[INSTALL_SYSTEM.md](INSTALL_SYSTEM.md)** - System-wide installation
 - **[LOW_MEMORY_BUILD.md](LOW_MEMORY_BUILD.md)** - Build on 16GB RAM systems
 - **[GPU_TARGET_COMPATIBILITY.md](GPU_TARGET_COMPATIBILITY.md)** - GPU support matrix
+- **`build_enable_math_clients.sh`** - Reconfigures the tree so `rocblas-bench`, `rocfft-rider`, and other math clients are built with OpenMP/benchmark support
 
 ### LLM/AI Tools Setup
 
@@ -139,6 +166,7 @@ ______________________________________________________________________
 
 - **[COMMANDS_CHEATSHEET.md](COMMANDS_CHEATSHEET.md)** - Quick reference
 - **[QUICK_COMMANDS.md](QUICK_COMMANDS.md)** - Essential commands
+- **[TEST_ROCM.md](TEST_ROCM.md)** - ROCm/HIP smoke-test checklist
 - **[CRUSH_SETUP.md](CRUSH_SETUP.md)** - Crush AI assistant
 - **[BANNER_UPDATE_SUMMARY.md](BANNER_UPDATE_SUMMARY.md)** - Shell customization
 
@@ -279,7 +307,7 @@ For general TheRock documentation, see:
 
 - [Original README](README.md)
 - [Contributing Guide](CONTRIBUTING.md)
-- [Development Guide](docs/development/development_guide.md)
+- [Development Guide](docs/upstream/development/development_guide.md)
 
 ______________________________________________________________________
 

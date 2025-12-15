@@ -286,9 +286,9 @@ The `_init.cmake` file in each component directory sets up:
 ## Important Documentation
 
 - `CONTRIBUTING.md` - Contribution guidelines and governance
-- `docs/development/development_guide.md` - Detailed development workflow guide
-- `docs/development/build_system.md` - Build system internals
-- `docs/environment_setup_guide.md` - Environment setup for various platforms
-- `docs/development/git_chores.md` - Version control procedures
+- `docs/upstream/development/development_guide.md` - Detailed development workflow guide
+- `docs/upstream/development/build_system.md` - Build system internals
+- `docs/upstream/environment_setup_guide.md` - Environment setup for various platforms
+- `docs/upstream/development/git_chores.md` - Version control procedures
 - `RELEASES.md` - Release artifacts and installation
 - `ROADMAP.md` - GPU support roadmap

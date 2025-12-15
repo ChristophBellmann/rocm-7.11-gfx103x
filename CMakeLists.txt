@@ -399,7 +399,7 @@ endif()
 # Additional platform specific settings may be needed to configure RPATH or
 # SxS DLL loading.
 # If updating supported libraries here, please update:
-#   docs/development/dependencies.md
+#   docs/upstream/development/dependencies.md
 ################################################################################
 
 set(THEROCK_BUNDLED_BZIP2)

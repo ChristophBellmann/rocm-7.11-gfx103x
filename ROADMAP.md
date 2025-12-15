@@ -52,7 +52,7 @@ See also the [ROCm Device Support Wishlist GitHub Discussion](https://github.com
 
 ### ROCm on Windows
 
-Check [windows_support.md](docs/development/windows_support.md) on current status of development.
+Check [windows_support.md](docs/upstream/development/windows_support.md) on current status of development.
 
 #### AMD Radeon - Windows
 

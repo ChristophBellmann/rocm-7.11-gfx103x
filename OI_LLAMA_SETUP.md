@@ -30,8 +30,8 @@ Edit `~/.bashrc` and `~/.zshrc`:
 
 ```bash
 # Change port from 8080 to 1234 (LM Studio)
-alias oi="source /home/hashcat/TheRock/.venv/bin/activate && PYTHONWARNINGS='ignore' OPENAI_API_KEY='lm-studio' OPENAI_API_BASE='http://localhost:1234/v1' interpreter -y --model gpt-3.5-turbo"
-alias open-interpreter="source /home/hashcat/TheRock/.venv/bin/activate && PYTHONWARNINGS='ignore' OPENAI_API_KEY='lm-studio' OPENAI_API_BASE='http://localhost:1234/v1' interpreter --model gpt-3.5-turbo"
+alias oi="source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate && PYTHONWARNINGS='ignore' OPENAI_API_KEY='lm-studio' OPENAI_API_BASE='http://localhost:1234/v1' interpreter -y --model gpt-3.5-turbo"
+alias open-interpreter="source /home/christoph/make_my_gpu_useful/TheRock_gfx1031/.venv/bin/activate && PYTHONWARNINGS='ignore' OPENAI_API_KEY='lm-studio' OPENAI_API_BASE='http://localhost:1234/v1' interpreter --model gpt-3.5-turbo"
 ```
 
 ## Alternative: Direct llama.cpp CLI

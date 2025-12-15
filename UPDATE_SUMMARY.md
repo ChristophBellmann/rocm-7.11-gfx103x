@@ -20,7 +20,7 @@ ______________________________________________________________________
 - AMD's DNN primitives library
 - Location: `ml-libs/`
 - Artifact: `ml-libs/artifact-hipdnn.toml`
-- RFC: `docs/rfcs/RFC0005-hipDNN-Project-Integration.md`
+- RFC: `docs/upstream/rfcs/RFC0005-hipDNN-Project-Integration.md`
 
 ### 3. **MIOpen Plugin**
 
@@ -37,7 +37,7 @@ ______________________________________________________________________
 ### 5. **Test Harness Framework**
 
 - New test orchestration system for CI/CD
-- Documentation: `docs/development/therock_test_harness.md`
+- Documentation: `docs/upstream/development/therock_test_harness.md`
 - Workflow: `.github/workflows/therock_test_harness.yml`
 - Visual diagram available in docs
 
@@ -208,17 +208,17 @@ ______________________________________________________________________
 
 1. **RFC0005**: hipDNN Project Integration
 
-   - `docs/rfcs/RFC0005-hipDNN-Project-Integration.md`
+- `docs/upstream/rfcs/RFC0005-hipDNN-Project-Integration.md`
 
 1. **RFC0006**: libhipcxx ROCm Core Inclusion
 
-   - `docs/rfcs/RFC0006-libhipcxx-ROCm-Core-Inclusion.md`
+- `docs/upstream/rfcs/RFC0006-libhipcxx-ROCm-Core-Inclusion.md`
 
 ### New Docs
 
-- `docs/development/therock_test_harness.md` - Test orchestration guide
-- Updated Windows support table in `docs/development/windows_support.md`
-- Enhanced `docs/packaging/python_packaging.md`
+- `docs/upstream/development/therock_test_harness.md` - Test orchestration guide
+- Updated Windows support table in `docs/upstream/development/windows_support.md`
+- Enhanced `docs/upstream/packaging/python_packaging.md`
 
 ______________________________________________________________________
 
