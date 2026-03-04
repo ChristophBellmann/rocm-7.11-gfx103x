@@ -147,6 +147,9 @@ the custom ROCm stack produced by this repository.
 - Primary path in this repo:
   - `validation/config/profiles/pytorch_rocm711_source.yaml`
   - `external-builds/pytorch/build_prod_wheels.py`
+- Known fork reference (for reproducibility):
+  - Repo: `https://github.com/ChristophBellmann/rocm-7.11-pytorch-gfx103x`
+  - Branch: `christoph/miopen-workspace-fix`
 - Typical wheel output:
   - `validation/workspace/cache/wheels/pytorch_rocm711/` (or configured wheel dir)
 - Typical promote target:

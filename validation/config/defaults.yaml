@@ -53,8 +53,8 @@ workloads:
       index_url: "https://rocm.nightlies.amd.com/v2/gfx103X-dgpu/"
       # Version constraint for `rocm[libraries,devel]` (comparison prefix allowed).
       rocm_sdk_version: "~=7.11.0"
-      # Which PyTorch ref/tag/branch to build (default matches external-builds tooling).
-      pytorch_repo_hashtag: "nightly"
+      # Which PyTorch ref/tag/branch to build.
+      pytorch_repo_hashtag: "christoph/miopen-workspace-fix"
       # Fork URL for checkout helper. Keeps source-build lineage reproducible.
       gitrepo_origin: "https://github.com/ChristophBellmann/rocm-7.11-pytorch-gfx103x.git"
       # Cache dirs (relative to repo root unless absolute).

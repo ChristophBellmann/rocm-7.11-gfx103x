@@ -20,7 +20,7 @@ workloads:
     source_build:
       enabled: true
       backend: "in-tree"
-      pytorch_repo_hashtag: "nightly"
+      pytorch_repo_hashtag: "christoph/miopen-workspace-fix"
       pytorch_dir: "validation/workspace/cache/git/pytorch_rocm711"
       wheels_dir: "validation/workspace/cache/wheels/pytorch_rocm711"
       pip_cache_dir: "validation/workspace/cache/pip"
