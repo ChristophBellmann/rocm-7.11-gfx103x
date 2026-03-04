@@ -131,6 +131,8 @@ workloads:
     rocm_path: "/opt/rocm"
     rocm_version: "7.11.0"
     hip_arch: "gfx1031"
+    use_migraphx: false
+    migraphx_home: "/opt/rocm"
     work_root: "validation/workspace/builds/onnxruntime_rocm"
     wheel_out_dir: "validation/workspace/cache/wheels/onnxruntime_rocm711"
     do_update: true
@@ -143,6 +145,14 @@ workloads:
     work_root: "validation/workspace/builds/tensorflow_rocm"
     wheel_out_dir: "validation/workspace/cache/wheels/tensorflow_rocm_custom"
     do_update: true
+    # Functional GPU matmul benchmark settings.
+    use_in_tree_rocm: false
+    disable_hipblaslt_init: 1
+    hsa_override_gfx_version: ""
+    matmul_mnk: 4096
+    min_bench_s: 5.0
+    dtype: "float16"
+    require_rocm_prefix: ""
 
 steps:
   rocm_sanity: true
@@ -157,7 +167,9 @@ steps:
   petsc_hip: false
   onnxruntime_rocm_wheel: false
   onnxruntime_infer: false
+  onnxruntime_migraphx_infer: false
   tensorflow_rocm_wheel: false
+  tensorflow_functional: false
 
 timeouts_s:
   rocminfo: 10
@@ -181,6 +193,8 @@ timeouts_s:
   pytorch_build: 21600
   onnxruntime_build: 21600
   onnxruntime_infer: 900
+  onnxruntime_migraphx_infer: 900
   tensorflow_build: 43200
+  tensorflow_functional: 900
   petsc_configure: 3600
   petsc_build: 7200

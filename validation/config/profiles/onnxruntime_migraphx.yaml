@@ -1,6 +1,6 @@
-# ONNX Runtime wheel validation against in-tree ROCm (build-stage2/dist/rocm).
+# ONNX Runtime MIGraphX EP inference check using an existing local ROCm wheel.
 run:
-  profile: onnxruntime_in_tree
+  profile: onnxruntime_migraphx
   ask_before_downloads: false
   downloads_enabled: true
 
@@ -15,12 +15,7 @@ steps:
   mfem_hip: false
   pytorch: false
   petsc_hip: false
-  onnxruntime_rocm_wheel: true
-  onnxruntime_infer: true
-  onnxruntime_migraphx_infer: false
+  onnxruntime_rocm_wheel: false
+  onnxruntime_infer: false
+  onnxruntime_migraphx_infer: true
   tensorflow_rocm_wheel: false
-
-workloads:
-  onnxruntime:
-    rocm_path: "build-stage2/dist/rocm"
-    do_update: false

@@ -49,6 +49,9 @@ def step_onnxruntime_rocm_wheel(
         step_env["ROCM_VERSION"] = str(wl.get("rocm_version"))
     if wl.get("hip_arch"):
         step_env["HIP_ARCH"] = str(wl.get("hip_arch"))
+    step_env["USE_MIGRAPHX"] = "1" if bool(wl.get("use_migraphx", False)) else "0"
+    if wl.get("migraphx_home"):
+        step_env["MIGRAPHX_HOME"] = str(wl.get("migraphx_home"))
     if wl.get("work_root"):
         step_env["WORK_ROOT"] = str(wl.get("work_root"))
     if wl.get("wheel_out_dir"):

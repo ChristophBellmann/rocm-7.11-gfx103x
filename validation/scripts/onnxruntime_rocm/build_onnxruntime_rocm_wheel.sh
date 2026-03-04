@@ -15,6 +15,8 @@ ROCM_PATH="${ROCM_PATH:-/opt/rocm}"
 ROCM_VERSION="${ROCM_VERSION:-7.11.0}"
 HIP_ARCH="${HIP_ARCH:-gfx1031}"
 HIP_PLATFORM="${HIP_PLATFORM:-amd}"
+USE_MIGRAPHX="${USE_MIGRAPHX:-0}"
+MIGRAPHX_HOME="${MIGRAPHX_HOME:-${ROCM_PATH}}"
 PARALLEL="${PARALLEL:-$(nproc)}"
 DO_UPDATE="${DO_UPDATE:-1}"
 
@@ -39,6 +41,15 @@ if [[ "${WHEEL_OUT_DIR}" != /* ]]; then
 fi
 if [[ "${ROCM_PATH}" != /* ]]; then
   ROCM_PATH="${ROOT}/${ROCM_PATH}"
+fi
+if [[ "${MIGRAPHX_HOME}" != /* ]]; then
+  MIGRAPHX_HOME="${ROOT}/${MIGRAPHX_HOME}"
+fi
+
+# Avoid stale CMake cache when toggling MIGraphX EP.
+DEFAULT_BUILD_DIR="${WORK_ROOT}/build-gfx1031-tlsfix-wheel"
+if [[ "${USE_MIGRAPHX}" == "1" && "${BUILD_DIR}" == "${DEFAULT_BUILD_DIR}" ]]; then
+  BUILD_DIR="${WORK_ROOT}/build-gfx1031-tlsfix-wheel-migraphx"
 fi
 
 mkdir -p "${WORK_ROOT}" "${WHEEL_OUT_DIR}" "$(dirname "${LOG_FILE}")"
@@ -125,6 +136,8 @@ echo "ROCM_PATH=${ROCM_PATH}"
 echo "ROCM_VERSION=${ROCM_VERSION}"
 echo "HIP_ARCH=${HIP_ARCH}"
 echo "HIP_PLATFORM=${HIP_PLATFORM}"
+echo "USE_MIGRAPHX=${USE_MIGRAPHX}"
+echo "MIGRAPHX_HOME=${MIGRAPHX_HOME}"
 echo "PARALLEL=${PARALLEL}"
 echo "DO_UPDATE=${DO_UPDATE}"
 echo "LOG_FILE=${LOG_FILE}"
@@ -132,6 +145,24 @@ echo "LOG_FILE=${LOG_FILE}"
 BUILD_ARGS=()
 if [[ "${DO_UPDATE}" == "1" ]]; then
   BUILD_ARGS+=(--update)
+fi
+if [[ "${USE_MIGRAPHX}" == "1" ]]; then
+  if [[ "${DO_UPDATE}" != "1" ]]; then
+    # Ensure CMake configure picks up MIGraphX flags even when repo update is disabled.
+    BUILD_ARGS+=(--update)
+  fi
+  BUILD_ARGS+=(--use_migraphx --migraphx_home "${MIGRAPHX_HOME}")
+fi
+
+# Needed for pybind build (onnxruntime/python/numpy_helper.h).
+"${PYTHON_BIN}" -m pip install -q "numpy<2"
+
+# Reconfigure when cache is missing/stale (e.g. missing NumPy include detection).
+CMAKE_CACHE="${BUILD_DIR}/Release/CMakeCache.txt"
+if [[ ! -f "${CMAKE_CACHE}" ]] || ! grep -q '^Python_NumPy_INCLUDE_DIR:' "${CMAKE_CACHE}" 2>/dev/null; then
+  if [[ " ${BUILD_ARGS[*]} " != *" --update "* ]]; then
+    BUILD_ARGS+=(--update)
+  fi
 fi
 
 "${PYTHON_BIN}" tools/ci_build/build.py \

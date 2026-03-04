@@ -100,6 +100,7 @@ Focused profiles:
 - PETSc: `petsc`
 - ONNX Runtime ROCm wheel build: `onnxruntime`
 - ONNX Runtime in-tree ROCm wheel + inference test: `onnxruntime_in_tree`
+- ONNX Runtime in-tree ROCm wheel + MIGraphX EP inference test: `onnxruntime_migraphx_build`
 - PyTorch GPU compute: `pytorch`
 - PyTorch in-tree ROCm enforcement: `pytorch_in_tree`
 - PyTorch ROCm 7.11 source build: `pytorch_rocm711_source`
@@ -131,6 +132,7 @@ python3 validation/scripts/validate.py --profile ollama --yes --power --log
 python3 validation/scripts/validate.py --profile petsc --yes --power --log
 python3 validation/scripts/validate.py --profile onnxruntime --yes --log
 python3 validation/scripts/validate.py --profile onnxruntime_in_tree --yes --power --log
+python3 validation/scripts/validate.py --profile onnxruntime_migraphx_build --yes --log
 python3 validation/scripts/validate.py --profile pytorch --yes --power
 python3 validation/scripts/validate.py --profile tensorflow --yes --log
 ```
@@ -183,6 +185,12 @@ the custom ROCm stack produced by this repository.
     - provider events from ONNX Runtime profiling (`rocm_events > 0`)
     - throughput metrics (`avg_ms`, `iters_per_s`)
     - optional power metrics when `--power` is enabled
+- MIGraphX EP build+validation profile:
+  - `validation/config/profiles/onnxruntime_migraphx_build.yaml`
+  - runs:
+    - ROCm sanity
+    - ONNX Runtime wheel build with `--use_migraphx`
+    - ONNX Runtime inference test with `MIGraphXExecutionProvider`
 
 ### TensorFlow ROCm wheel
 
@@ -200,6 +208,7 @@ the custom ROCm stack produced by this repository.
 - Default source config:
   - `workloads.tensorflow.repo_url`: `https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git`
   - `workloads.tensorflow.ref`: `r2.20-rocm-enhanced`
+- Validation profile `tensorflow` also runs a post-build TensorFlow GPU matmul benchmark and reports `tflops_est` plus the computed operation (`C=A*B` dense matmul).
 
 Cache note: Validation TensorFlow uses `validation/workspace/cache/ccache/` (separate from repo `.ccache/`).
 
@@ -325,6 +334,8 @@ Profiles:
 - `validation/config/profiles/pytorch_rocm711_source.yaml`
 - `validation/config/profiles/onnxruntime.yaml`
 - `validation/config/profiles/onnxruntime_in_tree.yaml`
+- `validation/config/profiles/onnxruntime_migraphx.yaml`
+- `validation/config/profiles/onnxruntime_migraphx_build.yaml`
 - `validation/config/profiles/petsc.yaml`
 - `validation/config/profiles/tensorflow.yaml`
 
