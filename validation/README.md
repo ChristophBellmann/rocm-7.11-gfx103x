@@ -207,7 +207,7 @@ the custom ROCm stack produced by this repository.
   - `/opt/rocm/wheels/tensorflow_rocm_custom/`
 - Default source config:
   - `workloads.tensorflow.repo_url`: `https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git`
-  - `workloads.tensorflow.ref`: `r2.20-rocm-enhanced`
+  - `workloads.tensorflow.ref`: `christoph/gfx1031-buildfixes`
 - Validation profile `tensorflow` also runs a post-build TensorFlow GPU matmul benchmark and reports `tflops_est` plus the computed operation (`C=A*B` dense matmul).
 
 Cache note: Validation TensorFlow uses `validation/workspace/cache/ccache/` (separate from repo `.ccache/`).

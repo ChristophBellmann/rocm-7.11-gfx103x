@@ -139,7 +139,7 @@ workloads:
   tensorflow:
     # Build settings for validation/src/steps/workloads/tensorflow/rocm_wheel.py
     repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"
-    ref: "r2.20-rocm-enhanced"
+    ref: "christoph/gfx1031-buildfixes"
     jobs: 24
     rocm_path: "/opt/rocm"
     work_root: "validation/workspace/builds/tensorflow_rocm"

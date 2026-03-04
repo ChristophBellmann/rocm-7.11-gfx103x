@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 WORK_ROOT="${WORK_ROOT:-${ROOT}/validation/workspace/builds/tensorflow_rocm}"
 TF_SRC_DIR="${TF_SRC_DIR:-${WORK_ROOT}/tensorflow}"
+SYSLIBS_DIR="${SYSLIBS_DIR:-${WORK_ROOT}/syslibs}"
 VENV_DIR="${VENV_DIR:-${WORK_ROOT}/.venv}"
 PYTHON_BIN="${PYTHON_BIN:-}"
 ROCM_PATH="${ROCM_PATH:-/opt/rocm}"
@@ -29,6 +30,9 @@ if [[ "${TF_SRC_DIR}" != /* ]]; then
 fi
 if [[ "${VENV_DIR}" != /* ]]; then
   VENV_DIR="${ROOT}/${VENV_DIR}"
+fi
+if [[ "${SYSLIBS_DIR}" != /* ]]; then
+  SYSLIBS_DIR="${ROOT}/${SYSLIBS_DIR}"
 fi
 if [[ "${BAZEL_BIN_DIR}" != /* ]]; then
   BAZEL_BIN_DIR="${ROOT}/${BAZEL_BIN_DIR}"
@@ -58,6 +62,7 @@ elif [[ "${PYTHON_BIN}" != /* ]]; then
 fi
 
 mkdir -p "${WORK_ROOT}" "${BAZEL_BIN_DIR}" "${WHEEL_OUT_DIR}" \
+  "${SYSLIBS_DIR}" \
   "${XDG_CACHE_HOME}" "${BAZELISK_HOME}" "${BAZEL_OUTPUT_USER_ROOT}" "${CCACHE_DIR}"
 mkdir -p "$(dirname "${BUILD_START_LOG}")"
 : > "${BUILD_START_LOG}"
@@ -66,6 +71,12 @@ exec > >(tee -a "${BUILD_START_LOG}") 2>&1
 export XDG_CACHE_HOME
 export BAZELISK_HOME
 export CCACHE_DIR
+# Make libnuma discoverable for lld-based link steps even without libnuma-dev.
+if [[ -e "/lib/x86_64-linux-gnu/libnuma.so.1" ]]; then
+  ln -sfn /lib/x86_64-linux-gnu/libnuma.so.1 "${SYSLIBS_DIR}/libnuma.so"
+  ln -sfn /lib/x86_64-linux-gnu/libnuma.so.1 "${SYSLIBS_DIR}/libnuma.so.1"
+fi
+export LIBRARY_PATH="${SYSLIBS_DIR}:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:${LIBRARY_PATH:-}"
 export CCACHE_BASEDIR="${TF_SRC_DIR}"
 export CCACHE_COMPILERCHECK=content
 
@@ -110,7 +121,7 @@ patch_rocm_crosstool_builtin_includes() {
     return 0
   fi
 
-  "${PYTHON_BIN}" - "${crosstool_build}" "${clang_resource_dir}" "${real_clang_dir}" <<'PY'
+  "${PYTHON_BIN}" - "${crosstool_build}" "${clang_resource_dir}" "${real_clang_dir}" "${ROCM_PATH}" <<'PY'
 import pathlib
 import re
 import sys
@@ -120,6 +131,7 @@ import os
 p = pathlib.Path(sys.argv[1])
 clang_resource_dir = sys.argv[2]
 real_clang_dir = sys.argv[3]
+rocm_path = sys.argv[4] if len(sys.argv) > 4 else ""
 s = p.read_text()
 
 m = re.search(r'cxx_builtin_include_directories\s*=\s*\[(.*?)\]\s*,', s, re.S)
@@ -135,6 +147,14 @@ if clang_resource_dir:
 for d in glob.glob(os.path.join(real_clang_dir, "..", "lib", "clang", "*", "include")):
     add_candidates.append(os.path.realpath(d))
     add_candidates.append(os.path.abspath(d))
+if rocm_path:
+    for pat in (
+        os.path.join(rocm_path, "llvm", "lib", "clang", "*", "include"),
+        os.path.join(rocm_path, "lib", "llvm", "lib", "clang", "*", "include"),
+    ):
+        for d in glob.glob(pat):
+            add_candidates.append(os.path.realpath(d))
+            add_candidates.append(os.path.abspath(d))
 
 added = []
 for include_dir in add_candidates:
@@ -153,6 +173,48 @@ if added:
     print("Patched cxx builtin include dirs:")
     for d in added:
         print(f"  - {d}")
+PY
+}
+
+purge_bazel_local_config_rocm() {
+  # Force ROCm repo reconfiguration so stale TF_HIPBLASLT settings are not reused.
+  bazelisk --output_user_root="${BAZEL_OUTPUT_USER_ROOT}" shutdown >/dev/null 2>&1 || true
+  find "${BAZEL_OUTPUT_USER_ROOT}" -type d -path "*/external/local_config_rocm" -prune -exec rm -rf {} + 2>/dev/null || true
+  rm -rf "${TF_SRC_DIR}/bazel-tensorflow/external/local_config_rocm" 2>/dev/null || true
+}
+
+force_disable_generated_rocm_hipblaslt() {
+  "${PYTHON_BIN}" - "${BAZEL_OUTPUT_USER_ROOT}" "${TF_SRC_DIR}" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+tf_src = pathlib.Path(sys.argv[2])
+patched = []
+
+files = list(root.glob("**/external/local_config_rocm/rocm/rocm_config/rocm_config.h"))
+files += list(root.glob("**/external/local_config_rocm/rocm/build_defs.bzl"))
+files += [tf_src / "bazel-tensorflow" / "external" / "local_config_rocm" / "rocm" / "rocm_config" / "rocm_config.h"]
+files += [tf_src / "bazel-tensorflow" / "external" / "local_config_rocm" / "rocm" / "build_defs.bzl"]
+
+for p in files:
+    if not p.exists() or not p.is_file():
+        continue
+    s = p.read_text(encoding="utf-8")
+    n = s
+    if p.name == "rocm_config.h":
+        n = re.sub(r"#define\s+TF_HIPBLASLT\s+1", "#define TF_HIPBLASLT 0", n)
+    elif p.name == "build_defs.bzl":
+        n = n.replace("if_rocm_hipblaslt(if_true, if_false = []):\n    return if_true", "if_rocm_hipblaslt(if_true, if_false = []):\n    return if_false")
+    if n != s:
+        p.write_text(n, encoding="utf-8")
+        patched.append(str(p))
+
+if patched:
+    print("Patched generated local_config_rocm files:")
+    for p in patched:
+        print(f"  - {p}")
 PY
 }
 
@@ -188,19 +250,54 @@ fi
 # ROCm tensorflow-upstream carries its own ROCm adaptations.
 # Use a minimal build path and skip downstream patch blocks in this script.
 ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
-if [[ "${TF_REPO_URL}" == *"ROCm/tensorflow-upstream"* ]] || \
-   [[ "${TF_REPO_URL}" == *"rocm-7.11-tensorflow-gfx103x"* ]] || \
-   [[ "${ORIGIN_URL}" == *"ROCm/tensorflow-upstream"* ]] || \
+IS_CHRISTOPH_TF_FORK=0
+if [[ "${TF_REPO_URL}" == *"rocm-7.11-tensorflow-gfx103x"* ]] || \
    [[ "${ORIGIN_URL}" == *"rocm-7.11-tensorflow-gfx103x"* ]]; then
+  IS_CHRISTOPH_TF_FORK=1
+fi
+if [[ "${TF_REPO_URL}" == *"ROCm/tensorflow-upstream"* ]] || \
+   [[ "${IS_CHRISTOPH_TF_FORK}" == "1" ]] || \
+   [[ "${ORIGIN_URL}" == *"ROCm/tensorflow-upstream"* ]] || \
+   [[ "${IS_CHRISTOPH_TF_FORK}" == "1" ]]; then
   # Some ROCm crosstool wrappers invoke `python` via /usr/bin/env.
   ln -sf "${PYTHON_BIN}" "${BAZEL_BIN_DIR}/python"
   "${PYTHON_BIN}" -m pip install -U pip setuptools wheel numpy
   "${PYTHON_BIN}" -m pip install -U keras_preprocessing packaging requests opt_einsum six
 
-  # ROCm 7.11 headers can expose FlatBuffers v25 first in include resolution.
-  # TensorFlow generated schema headers are version-pinned to v24 and fail with
-  # a static_assert otherwise. Allow v24 (expected) and v25 (ROCm toolchain env).
-  "${PYTHON_BIN}" - <<'PY' "${TF_SRC_DIR}"
+  if [[ "${IS_CHRISTOPH_TF_FORK}" == "1" ]]; then
+    echo "Using ${TF_REPO_URL}@${TF_REF} with persisted gfx1031/ROCm patchset (no runtime source patching)."
+  else
+    # Disable hipBLASLt already at ROCm configure-time so TF_HIPBLASLT is 0 and
+    # if_rocm_hipblaslt() branches stay off in generated local_config_rocm.
+    "${PYTHON_BIN}" - <<'PY' "${TF_SRC_DIR}"
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+cands = [
+    root / "third_party" / "xla" / "third_party" / "gpus" / "rocm" / "rocm_configure.bzl",
+    root / "third_party" / "gpus" / "rocm_configure.bzl",
+]
+p = next((c for c in cands if c.exists()), None)
+if p is not None:
+    s = p.read_text(encoding="utf-8")
+    s = re.sub(
+        r'have_hipblaslt\s*=\s*"1"\s+if\s+rocm_libs\["hipblaslt"\]\s*!=\s*None\s+else\s+"0"',
+        'have_hipblaslt = "0"',
+        s,
+    )
+    s = s.replace(
+        '"%{rocm_hipblaslt}": "True" if rocm_libs["hipblaslt"] != None else "False",',
+        '"%{rocm_hipblaslt}": "False",',
+    )
+    p.write_text(s, encoding="utf-8")
+PY
+
+    # ROCm 7.11 headers can expose FlatBuffers v25 first in include resolution.
+    # TensorFlow generated schema headers are version-pinned to v24 and fail with
+    # a static_assert otherwise. Allow v24 (expected) and v25 (ROCm toolchain env).
+    "${PYTHON_BIN}" - <<'PY' "${TF_SRC_DIR}"
 import pathlib
 import re
 import sys
@@ -247,6 +344,77 @@ for rel in headers:
         p.write_text(s2, encoding="utf-8")
 PY
 
+    # Enable native gfx1031 acceptance (RX 6700 XT) without HSA override.
+    "${PYTHON_BIN}" - <<'PY' "${TF_SRC_DIR}"
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+p = root / "third_party/xla/xla/stream_executor/device_description.h"
+s = p.read_text(encoding="utf-8")
+
+if '"gfx1031"' not in s:
+    s = s.replace(
+        '"gfx1030",                        // RX68xx / RX69xx\n',
+        '"gfx1030", "gfx1031",             // RX68xx / RX69xx / RX6700XT\n',
+        1,
+    )
+    s = s.replace(
+        'bool gfx10_rx68xx() const { return gfx_version() == "gfx1030"; }\n',
+        'bool gfx10_rx68xx() const { return gfx_version() == "gfx1030" || gfx_version() == "gfx1031"; }\n',
+        1,
+    )
+    s = s.replace(
+        'bool gfx10_rx69xx() const { return gfx_version() == "gfx1030"; }\n',
+        'bool gfx10_rx69xx() const { return gfx_version() == "gfx1030" || gfx_version() == "gfx1031"; }\n',
+        1,
+    )
+
+p.write_text(s, encoding="utf-8")
+PY
+
+    # Allow disabling hipBLASLt initialization via env flag. This is useful on
+    # gfx1031 compatibility runs where hipblasLtCreate can crash inside COMGR.
+    "${PYTHON_BIN}" - <<'PY' "${TF_SRC_DIR}"
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+p = root / "third_party/xla/xla/stream_executor/rocm/rocm_blas.cc"
+s = p.read_text(encoding="utf-8")
+
+if "#include <cstdlib>" not in s:
+    s = s.replace("#include <cstdint>\n", "#include <cstdint>\n#include <cstdlib>\n", 1)
+
+needle = """#if TF_HIPBLASLT
+  if (!blas_lt_.Init().ok()) {
+    LOG(ERROR) << "Failed to initialize hipblasLt";
+    return false;
+  }
+#endif
+"""
+repl = """#if TF_HIPBLASLT
+  const char* disable_hipblaslt = std::getenv("TF_ROCM_DISABLE_HIPBLASLT_INIT");
+  const bool skip_hipblaslt = disable_hipblaslt != nullptr &&
+                              disable_hipblaslt[0] != '\\0' &&
+                              disable_hipblaslt[0] != '0';
+  if (skip_hipblaslt) {
+    LOG(WARNING) << "Skipping hipBLASLt initialization due to TF_ROCM_DISABLE_HIPBLASLT_INIT="
+                 << disable_hipblaslt;
+  } else if (!blas_lt_.Init().ok()) {
+    LOG(ERROR) << "Failed to initialize hipblasLt";
+    return false;
+  }
+#endif
+"""
+if needle in s:
+    s = s.replace(needle, repl, 1)
+
+p.write_text(s, encoding="utf-8")
+PY
+  fi
+
   export TF_NEED_ROCM=1
   export TF_NEED_CUDA=0
   export TF_NEED_TENSORRT=0
@@ -265,6 +433,7 @@ PY
     ln -s "${ROCM_PATH}/lib/llvm/amdgcn" "${ROCM_PATH}/amdgcn"
   fi
 
+  purge_bazel_local_config_rocm
   set +e
   yes "" | ./configure
   cfg_rc=${PIPESTATUS[1]:-1}
@@ -274,6 +443,7 @@ PY
     exit "${cfg_rc}"
   fi
   patch_rocm_crosstool_builtin_includes
+  force_disable_generated_rocm_hipblaslt
 
   bazelisk --output_user_root="${BAZEL_OUTPUT_USER_ROOT}" build \
     --config=opt \
@@ -284,15 +454,32 @@ PY
     --repo_env=CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}" \
     --action_env=PATH="${PATH}" \
     --action_env=CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}" \
+    --action_env=LIBRARY_PATH="${LIBRARY_PATH}" \
     --action_env=HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH}" \
     --action_env=CCACHE_DIR="${CCACHE_DIR}" \
     --action_env=CCACHE_BASEDIR="${CCACHE_BASEDIR}" \
     --action_env=CCACHE_COMPILERCHECK="${CCACHE_COMPILERCHECK}" \
+    --linkopt=-L"${SYSLIBS_DIR}" \
+    --host_linkopt=-L"${SYSLIBS_DIR}" \
     //tensorflow/tools/pip_package:wheel
-  ./bazel-bin/tensorflow/tools/pip_package/wheel \
-    --output-name tensorflow_rocm_custom \
-    --project-name tensorflow-rocm-custom \
-    --output-dir "${WHEEL_OUT_DIR}"
+  WHEEL_HELPER="./bazel-bin/tensorflow/tools/pip_package/wheel"
+  WHEEL_HOUSE="${TF_SRC_DIR}/bazel-bin/tensorflow/tools/pip_package/wheel_house"
+  if [[ -x "${WHEEL_HELPER}" ]]; then
+    "${WHEEL_HELPER}" \
+      --output-name tensorflow_rocm_custom \
+      --project-name tensorflow-rocm-custom \
+      --output-dir "${WHEEL_OUT_DIR}"
+  else
+    shopt -s nullglob
+    wheels=( "${WHEEL_HOUSE}"/tensorflow-*.whl )
+    shopt -u nullglob
+    if [[ "${#wheels[@]}" -eq 0 ]]; then
+      echo "ERROR: No TensorFlow wheel found in ${WHEEL_HOUSE} and helper ${WHEEL_HELPER} is missing." >&2
+      exit 1
+    fi
+    mkdir -p "${WHEEL_OUT_DIR}"
+    cp -f "${wheels[@]}" "${WHEEL_OUT_DIR}/"
+  fi
 
   echo "Done. Wheel(s):"
   ls -lh "${WHEEL_OUT_DIR}"/*.whl
@@ -410,6 +597,7 @@ PY
 # hipBLASLt pointer mode API changed naming (hipblasLtPointerMode_t).
 HIP_BLAS_LT_H="${TF_SRC_DIR}/third_party/xla/xla/stream_executor/rocm/hip_blas_lt.h"
 HIP_BLAS_LT_CC="${TF_SRC_DIR}/third_party/xla/xla/stream_executor/rocm/hip_blas_lt.cc"
+ROCM_BLAS_CC="${TF_SRC_DIR}/third_party/xla/xla/stream_executor/rocm/rocm_blas.cc"
 "${PYTHON_BIN}" - <<'PY' "${HIP_BLAS_LT_H}" "${HIP_BLAS_LT_CC}"
 import pathlib
 import sys
@@ -425,6 +613,45 @@ h.write_text(hs)
 cs = cc.read_text()
 cs = cs.replace("HIPBLAS_POINTER_MODE_DEVICE", "HIPBLASLT_POINTER_MODE_DEVICE")
 cc.write_text(cs)
+PY
+
+# Allow disabling hipBLASLt initialization via env flag. This is useful on
+# gfx1031 compatibility runs where hipblasLtCreate can crash inside COMGR.
+"${PYTHON_BIN}" - <<'PY' "${ROCM_BLAS_CC}"
+import pathlib
+import sys
+
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+
+if "#include <cstdlib>" not in s:
+    s = s.replace("#include <cstdint>\n", "#include <cstdint>\n#include <cstdlib>\n", 1)
+
+needle = """#if TF_HIPBLASLT
+  if (!blas_lt_.Init().ok()) {
+    LOG(ERROR) << "Failed to initialize hipblasLt";
+    return false;
+  }
+#endif
+"""
+repl = """#if TF_HIPBLASLT
+  const char* disable_hipblaslt = std::getenv("TF_ROCM_DISABLE_HIPBLASLT_INIT");
+  const bool skip_hipblaslt = disable_hipblaslt != nullptr &&
+                              disable_hipblaslt[0] != '\\0' &&
+                              disable_hipblaslt[0] != '0';
+  if (skip_hipblaslt) {
+    LOG(WARNING) << "Skipping hipBLASLt initialization due to TF_ROCM_DISABLE_HIPBLASLT_INIT="
+                 << disable_hipblaslt;
+  } else if (!blas_lt_.Init().ok()) {
+    LOG(ERROR) << "Failed to initialize hipblasLt";
+    return false;
+  }
+#endif
+"""
+if needle in s:
+    s = s.replace(needle, repl, 1)
+
+p.write_text(s)
 PY
 
 # Fix strict include checking for grappler:devices in this ROCm setup.
@@ -1648,6 +1875,7 @@ if [[ ! -d "${ROCM_PATH}/amdgcn" && -d "${ROCM_PATH}/lib/llvm/amdgcn" ]]; then
   ln -s "${ROCM_PATH}/lib/llvm/amdgcn" "${ROCM_PATH}/amdgcn"
 fi
 
+purge_bazel_local_config_rocm
 set +e
 yes "" | ./configure
 cfg_rc=$?
@@ -1657,6 +1885,7 @@ if [[ "${cfg_rc}" -ne 0 && "${cfg_rc}" -ne 141 ]]; then
   exit "${cfg_rc}"
 fi
 patch_rocm_crosstool_builtin_includes
+force_disable_generated_rocm_hipblaslt
 
 bazelisk --output_user_root="${BAZEL_OUTPUT_USER_ROOT}" build \
   --config=opt \
@@ -1667,15 +1896,32 @@ bazelisk --output_user_root="${BAZEL_OUTPUT_USER_ROOT}" build \
   --repo_env=CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}" \
   --action_env=PATH="${PATH}" \
   --action_env=CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}" \
+  --action_env=LIBRARY_PATH="${LIBRARY_PATH}" \
   --action_env=HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH}" \
   --action_env=CCACHE_DIR="${CCACHE_DIR}" \
   --action_env=CCACHE_BASEDIR="${CCACHE_BASEDIR}" \
   --action_env=CCACHE_COMPILERCHECK="${CCACHE_COMPILERCHECK}" \
+  --linkopt=-L"${SYSLIBS_DIR}" \
+  --host_linkopt=-L"${SYSLIBS_DIR}" \
   //tensorflow/tools/pip_package:wheel
-./bazel-bin/tensorflow/tools/pip_package/wheel \
-  --output-name tensorflow_rocm_custom \
-  --project-name tensorflow-rocm-custom \
-  --output-dir "${WHEEL_OUT_DIR}"
+WHEEL_HELPER="./bazel-bin/tensorflow/tools/pip_package/wheel"
+WHEEL_HOUSE="${TF_SRC_DIR}/bazel-bin/tensorflow/tools/pip_package/wheel_house"
+if [[ -x "${WHEEL_HELPER}" ]]; then
+  "${WHEEL_HELPER}" \
+    --output-name tensorflow_rocm_custom \
+    --project-name tensorflow-rocm-custom \
+    --output-dir "${WHEEL_OUT_DIR}"
+else
+  shopt -s nullglob
+  wheels=( "${WHEEL_HOUSE}"/tensorflow-*.whl )
+  shopt -u nullglob
+  if [[ "${#wheels[@]}" -eq 0 ]]; then
+    echo "ERROR: No TensorFlow wheel found in ${WHEEL_HOUSE} and helper ${WHEEL_HELPER} is missing." >&2
+    exit 1
+  fi
+  mkdir -p "${WHEEL_OUT_DIR}"
+  cp -f "${wheels[@]}" "${WHEEL_OUT_DIR}/"
+fi
 
 echo "Done. Wheel(s):"
 ls -lh "${WHEEL_OUT_DIR}"/*.whl
