@@ -5,7 +5,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 WORK_ROOT="${WORK_ROOT:-${ROOT}/validation/workspace/builds/tensorflow_rocm}"
 TF_SRC_DIR="${TF_SRC_DIR:-${WORK_ROOT}/tensorflow}"
 VENV_DIR="${VENV_DIR:-${WORK_ROOT}/.venv}"
-PYTHON_BIN="${PYTHON_BIN:-${VENV_DIR}/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-}"
 ROCM_PATH="${ROCM_PATH:-/opt/rocm}"
 JOBS="${JOBS:-$(nproc)}"
 TF_REPO_URL="${TF_REPO_URL:-https://github.com/tensorflow/tensorflow.git}"
@@ -13,6 +13,27 @@ TF_REF="${TF_REF:-v2.20.0}"
 BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-${WORK_ROOT}/bin}"
 BAZELISK="${BAZELISK:-${BAZEL_BIN_DIR}/bazelisk}"
 WHEEL_OUT_DIR="${WHEEL_OUT_DIR:-${ROOT}/validation/workspace/cache/wheels/tensorflow_rocm_custom}"
+
+if [[ "${WORK_ROOT}" != /* ]]; then
+  WORK_ROOT="${ROOT}/${WORK_ROOT}"
+fi
+if [[ "${TF_SRC_DIR}" != /* ]]; then
+  TF_SRC_DIR="${ROOT}/${TF_SRC_DIR}"
+fi
+if [[ "${VENV_DIR}" != /* ]]; then
+  VENV_DIR="${ROOT}/${VENV_DIR}"
+fi
+if [[ "${BAZEL_BIN_DIR}" != /* ]]; then
+  BAZEL_BIN_DIR="${ROOT}/${BAZEL_BIN_DIR}"
+fi
+if [[ "${WHEEL_OUT_DIR}" != /* ]]; then
+  WHEEL_OUT_DIR="${ROOT}/${WHEEL_OUT_DIR}"
+fi
+if [[ -z "${PYTHON_BIN}" ]]; then
+  PYTHON_BIN="${VENV_DIR}/bin/python"
+elif [[ "${PYTHON_BIN}" != /* ]]; then
+  PYTHON_BIN="${ROOT}/${PYTHON_BIN}"
+fi
 
 mkdir -p "${WORK_ROOT}" "${BAZEL_BIN_DIR}" "${WHEEL_OUT_DIR}"
 
@@ -47,6 +68,56 @@ if [[ "${TF_REPO_URL}" == *"ROCm/tensorflow-upstream"* ]]; then
   ln -sf "${PYTHON_BIN}" "${BAZEL_BIN_DIR}/python"
   "${PYTHON_BIN}" -m pip install -U pip setuptools wheel numpy
   "${PYTHON_BIN}" -m pip install -U keras_preprocessing packaging requests opt_einsum six
+
+  # ROCm 7.11 headers can expose FlatBuffers v25 first in include resolution.
+  # TensorFlow generated schema headers are version-pinned to v24 and fail with
+  # a static_assert otherwise. Allow v24 (expected) and v25 (ROCm toolchain env).
+  "${PYTHON_BIN}" - <<'PY' "${TF_SRC_DIR}"
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+headers = [
+    "tensorflow/compiler/mlir/lite/schema/schema_generated.h",
+    "tensorflow/compiler/mlir/lite/schema/conversion_metadata_generated.h",
+    "tensorflow/lite/acceleration/configuration/configuration_generated.h",
+    "tensorflow/lite/delegates/gpu/cl/compiled_program_cache_generated.h",
+    "tensorflow/lite/delegates/gpu/cl/serialization_generated.h",
+    "tensorflow/lite/delegates/gpu/common/task/tflite_serialization_base_generated.h",
+    "tensorflow/lite/experimental/acceleration/configuration/configuration_generated.h",
+    "tensorflow/lite/delegates/gpu/common/gpu_model_generated.h",
+]
+
+pat = re.compile(
+    r"static_assert\(\s*FLATBUFFERS_VERSION_MAJOR == 24\s*&&\s*"
+    r"FLATBUFFERS_VERSION_MINOR == (\d+)\s*&&\s*"
+    r"FLATBUFFERS_VERSION_REVISION == (\d+),\s*"
+    r"\"Non-compatible flatbuffers version included\"\);",
+    re.M,
+)
+
+for rel in headers:
+    p = root / rel
+    if not p.exists():
+        continue
+    s = p.read_text(encoding="utf-8")
+    if "FLATBUFFERS_VERSION_MAJOR == 25" in s:
+        continue
+    s2, n = pat.subn(
+        lambda m: (
+            "static_assert((FLATBUFFERS_VERSION_MAJOR == 24 &&\n"
+            f"              FLATBUFFERS_VERSION_MINOR == {m.group(1)} &&\n"
+            f"              FLATBUFFERS_VERSION_REVISION == {m.group(2)}) ||\n"
+            "              (FLATBUFFERS_VERSION_MAJOR == 25),\n"
+            '             "Non-compatible flatbuffers version included");'
+        ),
+        s,
+        count=1,
+    )
+    if n:
+        p.write_text(s2, encoding="utf-8")
+PY
 
   export TF_NEED_ROCM=1
   export TF_NEED_CUDA=0
