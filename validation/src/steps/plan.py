@@ -237,6 +237,166 @@ def _extract_gflops(text: str) -> float | None:
         return None
 
 
+def _latest_wheel(wheel_dir: Path) -> Path | None:
+    wheels = sorted(wheel_dir.glob("*.whl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return wheels[0] if wheels else None
+
+
+def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
+    py = sys.executable
+    wl = cfg.get("workloads", {}).get("onnxruntime", {}) or {}
+
+    wheel_out_dir = Path(
+        str(
+            wl.get(
+                "wheel_out_dir",
+                ctx.repo_root / "validation" / "workspace" / "cache" / "wheels" / "onnxruntime_rocm711",
+            )
+        )
+    )
+    if not wheel_out_dir.is_absolute():
+        wheel_out_dir = ctx.repo_root / wheel_out_dir
+    wheel = _latest_wheel(wheel_out_dir)
+    if wheel is None:
+        return StepResult(build_dir, "ONNX Runtime inference (ROCm)", "FAIL", "0ms", f"no wheel in {wheel_out_dir}")
+
+    model = Path(
+        str(
+            wl.get(
+                "infer_model",
+                "validation/workspace/builds/onnxruntime_rocm/winml/test/collateral/models/mnist.onnx",
+            )
+        )
+    )
+    if not model.is_absolute():
+        model = ctx.repo_root / model
+    if not model.is_file():
+        return StepResult(build_dir, "ONNX Runtime inference (ROCm)", "FAIL", "0ms", f"missing model: {model}")
+
+    # Keep ORT import ABI-stable in this venv for custom wheel tests.
+    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<7", str(wheel)]
+    r_install = run_cmd(ctx.repo_root, env, install_cmd, 600, log)
+    if r_install.rc != 0:
+        return StepResult(
+            build_dir,
+            "ONNX Runtime inference (ROCm)",
+            "FAIL",
+            fmt_duration(r_install.dur_ms),
+            f"pip rc={r_install.rc}",
+        )
+
+    warmup = int(wl.get("infer_warmup", 50))
+    iters = int(wl.get("infer_iters", 1500))
+    timeout_s = int(cfg.get("timeouts_s", {}).get("onnxruntime_infer", 900))
+
+    with tempfile.TemporaryDirectory(prefix="rocm-validation-ort-infer-") as td:
+        tdp = Path(td)
+        script = tdp / "ort_infer.py"
+        profile_prefix = tdp / "onnxruntime_profile"
+        script.write_text(
+            (
+                "import json\n"
+                "import time\n"
+                "import numpy as np\n"
+                "import onnxruntime as ort\n"
+                f"model = r'''{model}'''\n"
+                f"profile_prefix = r'''{profile_prefix}'''\n"
+                f"warmup = {warmup}\n"
+                f"iters = {iters}\n"
+                "providers = ['ROCMExecutionProvider', 'CPUExecutionProvider']\n"
+                "so = ort.SessionOptions()\n"
+                "so.enable_profiling = True\n"
+                "so.profile_file_prefix = profile_prefix\n"
+                "so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL\n"
+                "sess = ort.InferenceSession(model, sess_options=so, providers=providers)\n"
+                "sess_providers = sess.get_providers()\n"
+                "if 'ROCMExecutionProvider' not in sess_providers:\n"
+                "    raise RuntimeError(f'ROCMExecutionProvider missing from session providers: {sess_providers}')\n"
+                "inp = sess.get_inputs()[0]\n"
+                "shape = [d if isinstance(d, int) and d > 0 else 1 for d in inp.shape]\n"
+                "dtype = np.float32\n"
+                "if inp.type == 'tensor(float16)': dtype = np.float16\n"
+                "elif inp.type == 'tensor(double)': dtype = np.float64\n"
+                "elif inp.type == 'tensor(int64)': dtype = np.int64\n"
+                "elif inp.type == 'tensor(int32)': dtype = np.int32\n"
+                "x = np.random.rand(*shape).astype(dtype) if np.issubdtype(dtype, np.floating) else np.random.randint(0, 10, size=shape, dtype=dtype)\n"
+                "feed = {inp.name: x}\n"
+                "for _ in range(warmup):\n"
+                "    sess.run(None, feed)\n"
+                "t0 = time.perf_counter()\n"
+                "for _ in range(iters):\n"
+                "    out = sess.run(None, feed)\n"
+                "t1 = time.perf_counter()\n"
+                "profile_path = sess.end_profiling()\n"
+                "provider_events = 0\n"
+                "with open(profile_path, 'r', encoding='utf-8') as f:\n"
+                "    for ev in json.load(f):\n"
+                "        p = (ev.get('args') or {}).get('provider')\n"
+                "        if p == 'ROCMExecutionProvider':\n"
+                "            provider_events += 1\n"
+                "dt = t1 - t0\n"
+                "res = {\n"
+                "  'avg_ms': (dt * 1000.0) / iters,\n"
+                "  'iters_per_s': iters / dt,\n"
+                "  'iters': iters,\n"
+                "  'provider_events_rocm': provider_events,\n"
+                "  'session_providers': sess_providers,\n"
+                "  'model': model,\n"
+                "}\n"
+                "print('ORT_RESULT_JSON=' + json.dumps(res, sort_keys=True))\n"
+            ),
+            encoding="utf-8",
+        )
+
+        def run_infer(sampler: PowerSampler | None):
+            r = run_cmd(ctx.repo_root, env, [py, str(script)], timeout_s, log)
+            return r, sampler
+
+        r_infer, sampler = _with_power_sampler(ctx, cfg, build_dir, "onnxruntime_infer", run_infer)
+        if r_infer.rc != 0:
+            return StepResult(
+                build_dir,
+                "ONNX Runtime inference (ROCm)",
+                "FAIL",
+                fmt_duration(r_install.dur_ms + r_infer.dur_ms),
+                f"infer rc={r_infer.rc}",
+            )
+
+    m = re.search(r"ORT_RESULT_JSON=(\{.*\})", r_infer.out + "\n" + r_infer.err)
+    if not m:
+        return StepResult(
+            build_dir,
+            "ONNX Runtime inference (ROCm)",
+            "FAIL",
+            fmt_duration(r_install.dur_ms + r_infer.dur_ms),
+            "missing ORT_RESULT_JSON in output",
+        )
+    data = json.loads(m.group(1))
+    if int(data.get("provider_events_rocm", 0)) <= 0:
+        return StepResult(
+            build_dir,
+            "ONNX Runtime inference (ROCm)",
+            "FAIL",
+            fmt_duration(r_install.dur_ms + r_infer.dur_ms),
+            "no ROCMExecutionProvider events in ORT profile",
+        )
+
+    metric = (
+        f"iters={int(data.get('iters', iters))} "
+        f"avg_ms={float(data.get('avg_ms', 0.0)):.4f} "
+        f"iters_per_s={float(data.get('iters_per_s', 0.0)):.2f} "
+        f"rocm_events={int(data.get('provider_events_rocm', 0))}"
+    )
+    metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
+    return StepResult(
+        build_dir,
+        "ONNX Runtime inference (ROCm)",
+        "OK",
+        fmt_duration(r_install.dur_ms + r_infer.dur_ms),
+        metric,
+    )
+
+
 def _step_rocblas(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     t = int(cfg.get("timeouts_s", {}).get("rocblas_bench", 60))
     if not which("rocblas-bench", env):
@@ -437,6 +597,7 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("pytorch", "pytorch_video", "PyTorch (video) conv", "typ. ~5s (sustained)", step_pytorch_video)
     add("petsc_hip", "petsc_hip", "PETSc (HIP) build+solve", "minutes (clone/build), ~5s solve", step_petsc_hip)
     add("onnxruntime_rocm_wheel", "onnxruntime_rocm_wheel", "ONNX Runtime (ROCm) wheel build", "hours (clone/build)", step_onnxruntime_rocm_wheel)
+    add("onnxruntime_infer", "onnxruntime_infer", "ONNX Runtime inference (ROCm)", "typ. ~5s (continuous)", _step_onnxruntime_infer)
     add("tensorflow_rocm_wheel", "tensorflow_rocm_wheel", "TensorFlow (ROCm) wheel build", "hours (clone/build)", step_tensorflow_rocm_wheel)
     return plan
 

@@ -22,7 +22,33 @@ TLS_C_FLAGS="${TLS_C_FLAGS:--ftls-model=global-dynamic}"
 TLS_CXX_FLAGS="${TLS_CXX_FLAGS:--ftls-model=global-dynamic}"
 TLS_LINK_FLAGS="${TLS_LINK_FLAGS:--Wl,--no-as-needed}"
 
+if [[ "${WORK_ROOT}" != /* ]]; then
+  WORK_ROOT="${ROOT}/${WORK_ROOT}"
+fi
+if [[ "${ORT_SRC_DIR}" != /* ]]; then
+  ORT_SRC_DIR="${ROOT}/${ORT_SRC_DIR}"
+fi
+if [[ "${BUILD_DIR}" != /* ]]; then
+  BUILD_DIR="${ROOT}/${BUILD_DIR}"
+fi
+if [[ "${LOG_FILE}" != /* ]]; then
+  LOG_FILE="${ROOT}/${LOG_FILE}"
+fi
+if [[ "${WHEEL_OUT_DIR}" != /* ]]; then
+  WHEEL_OUT_DIR="${ROOT}/${WHEEL_OUT_DIR}"
+fi
+if [[ "${ROCM_PATH}" != /* ]]; then
+  ROCM_PATH="${ROOT}/${ROCM_PATH}"
+fi
+
 mkdir -p "${WORK_ROOT}" "${WHEEL_OUT_DIR}" "$(dirname "${LOG_FILE}")"
+
+# Support both layouts:
+# 1) WORK_ROOT/onnxruntime (default)
+# 2) WORK_ROOT itself is the ORT git checkout
+if [[ ! -d "${ORT_SRC_DIR}/.git" && -d "${WORK_ROOT}/.git" ]]; then
+  ORT_SRC_DIR="${WORK_ROOT}"
+fi
 
 verify_wheel_tls() {
   local wheel_path="$1"
@@ -63,13 +89,23 @@ fi
 
 cd "${ORT_SRC_DIR}"
 
+# Ensure origin heads are fetchable (some cached clones may have tag-only refspecs).
+if ! git config --get-all remote.origin.fetch | grep -q 'refs/heads/\*'; then
+  git config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+fi
+
 if [[ "${DO_UPDATE}" == "1" ]]; then
   echo "[ORT] Fetch updates"
-  git fetch --all --tags --prune
+  git fetch origin --tags --prune
+  git fetch upstream --tags --prune || true
 fi
 
 echo "[ORT] Checkout ${ORT_REF}"
-git checkout "${ORT_REF}"
+if git show-ref --verify --quiet "refs/remotes/origin/${ORT_REF}"; then
+  git checkout -B "${ORT_REF}" "origin/${ORT_REF}"
+else
+  git checkout "${ORT_REF}"
+fi
 if [[ "${DO_UPDATE}" == "1" ]]; then
   git pull --ff-only || true
   git submodule sync --recursive

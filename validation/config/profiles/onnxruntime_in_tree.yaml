@@ -1,0 +1,25 @@
+# ONNX Runtime wheel validation against in-tree ROCm (build-stage2/dist/rocm).
+run:
+  profile: onnxruntime_in_tree
+  ask_before_downloads: false
+  downloads_enabled: true
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+  pytorch: false
+  petsc_hip: false
+  onnxruntime_rocm_wheel: true
+  onnxruntime_infer: true
+  tensorflow_rocm_wheel: false
+
+workloads:
+  onnxruntime:
+    rocm_path: "build-stage2/dist/rocm"
+    do_update: false

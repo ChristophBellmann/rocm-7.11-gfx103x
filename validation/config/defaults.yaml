@@ -156,6 +156,7 @@ steps:
   pytorch: false
   petsc_hip: false
   onnxruntime_rocm_wheel: false
+  onnxruntime_infer: false
   tensorflow_rocm_wheel: false
 
 timeouts_s:
@@ -179,6 +180,7 @@ timeouts_s:
   pytorch_checkout: 3600
   pytorch_build: 21600
   onnxruntime_build: 21600
+  onnxruntime_infer: 900
   tensorflow_build: 43200
   petsc_configure: 3600
   petsc_build: 7200

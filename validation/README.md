@@ -99,6 +99,7 @@ Focused profiles:
 - MFEM: `mfem`
 - PETSc: `petsc`
 - ONNX Runtime ROCm wheel build: `onnxruntime`
+- ONNX Runtime in-tree ROCm wheel + inference test: `onnxruntime_in_tree`
 - PyTorch GPU compute: `pytorch`
 - PyTorch in-tree ROCm enforcement: `pytorch_in_tree`
 - PyTorch ROCm 7.11 source build: `pytorch_rocm711_source`
@@ -129,6 +130,7 @@ Additional targeted runs:
 python3 validation/scripts/validate.py --profile ollama --yes --power --log
 python3 validation/scripts/validate.py --profile petsc --yes --power --log
 python3 validation/scripts/validate.py --profile onnxruntime --yes --log
+python3 validation/scripts/validate.py --profile onnxruntime_in_tree --yes --power --log
 python3 validation/scripts/validate.py --profile pytorch --yes --power
 python3 validation/scripts/validate.py --profile tensorflow --yes --log
 ```
@@ -167,6 +169,17 @@ the custom ROCm stack produced by this repository.
   - Commit: `f4660e2`
 - Typical promote target:
   - `/opt/rocm/wheels/onnxruntime_rocm711/`
+- In-tree validation profile:
+  - `validation/config/profiles/onnxruntime_in_tree.yaml`
+  - runs:
+    - ROCm sanity
+    - ONNX Runtime wheel build
+    - ONNX Runtime inference test with `ROCMExecutionProvider`
+  - inference step verifies:
+    - provider availability in session
+    - provider events from ONNX Runtime profiling (`rocm_events > 0`)
+    - throughput metrics (`avg_ms`, `iters_per_s`)
+    - optional power metrics when `--power` is enabled
 
 ### TensorFlow ROCm wheel
 
@@ -192,6 +205,11 @@ Cache note: Validation TensorFlow uses `validation/workspace/cache/ccache/` (sep
 ```bash
 python -c "import torch; print(torch.__version__, torch.version.rocm, torch.cuda.is_available())"
 python -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_providers())"
+```
+
+ONNX Runtime inference validation with power:
+```bash
+python3 validation/scripts/validate.py --profile onnxruntime_in_tree --yes --power --log
 ```
 
 ## Workloads: behavior and metrics
@@ -248,6 +266,15 @@ If you need a faster wheel-based check, run `--profile pytorch`.
 Heavy source build workflow. See section **Custom builds against this ROCm stack** for scripts,
 artifact paths, and default source configuration.
 
+### ONNX Runtime inference (ROCm)
+
+`onnxruntime_in_tree` includes a real inference step after wheel build.
+Reported metrics include:
+- `avg_ms`
+- `iters_per_s`
+- `rocm_events` (from ONNX Runtime profiling; must be > 0)
+- optional power metrics (`E`, `avgW`, `dW`, `maxW`, `gpu%`, `mem%`) with `--power`
+
 ## How the suite works
 
 - **In-tree ROCm activation**:
@@ -294,6 +321,7 @@ Profiles:
 - `validation/config/profiles/pytorch_in_tree.yaml`
 - `validation/config/profiles/pytorch_rocm711_source.yaml`
 - `validation/config/profiles/onnxruntime.yaml`
+- `validation/config/profiles/onnxruntime_in_tree.yaml`
 - `validation/config/profiles/petsc.yaml`
 - `validation/config/profiles/tensorflow.yaml`
 
