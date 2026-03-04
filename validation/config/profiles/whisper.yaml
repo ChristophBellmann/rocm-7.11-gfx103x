@@ -10,10 +10,10 @@ workloads:
   pytorch:
     auto_install: true
     packages:
-      - "build-stage2/python_packages_gfx1031/dist/rocm-7.11.0a20260301-py3-none-any.whl"
-      - "build-stage2/python_packages_gfx1031/dist/rocm_sdk_core-7.11.0a20260301-py3-none-linux_x86_64.whl"
-      - "build-stage2/python_packages_gfx1031/dist/rocm_sdk_devel-7.11.0a20260301-py3-none-linux_x86_64.whl"
-      - "build-stage2/python_packages_gfx1031/dist/rocm_sdk_libraries_gfx1031-7.11.0a20260301-py3-none-linux_x86_64.whl"
+      - "rocm[libraries,devel] @ file:///media/christoph/some_space/Compute/TheRock_gfx1031/build-stage2/python_packages_gfx1031/dist/rocm-7.11.0a20260301-py3-none-any.whl"
+      - "rocm-sdk-core @ file:///media/christoph/some_space/Compute/TheRock_gfx1031/build-stage2/python_packages_gfx1031/dist/rocm_sdk_core-7.11.0a20260301-py3-none-linux_x86_64.whl"
+      - "rocm-sdk-devel @ file:///media/christoph/some_space/Compute/TheRock_gfx1031/build-stage2/python_packages_gfx1031/dist/rocm_sdk_devel-7.11.0a20260301-py3-none-linux_x86_64.whl"
+      - "rocm-sdk-libraries-gfx1031 @ file:///media/christoph/some_space/Compute/TheRock_gfx1031/build-stage2/python_packages_gfx1031/dist/rocm_sdk_libraries_gfx1031-7.11.0a20260301-py3-none-linux_x86_64.whl"
       - "torch @ file:///opt/rocm/wheels/pytorch_rocm711/torch-2.11.0a0+devrocm20260301-cp312-cp312-linux_x86_64.whl"
     expected_rocm_substr: "7.11"
   whisper:
