@@ -36,6 +36,20 @@ For the comprehensive validation/workload profile (`validation`, default `all`):
 sudo apt install -y ffmpeg docker.io
 ```
 
+### ccache (optional)
+
+`ccache` speeds up repeated C/C++ builds (e.g. ROCm/LLVM) by caching compiled objects.
+
+Install and set cache size:
+```bash
+sudo apt install ccache && ccache --max-size=100G
+```
+
+Enable in CMake:
+```bash
+-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+```
+
 If docker is installed, ensure your user can run it:
 ```bash
 sudo usermod -aG docker "$USER"
@@ -76,7 +90,7 @@ wheel output locations and promote/install notes, are documented in:
   - ROCm clang++: `/opt/rocm/lib/llvm/bin/clang++` (`AMD clang version 22.0.0git`)
 - Clang resource includes (relevant for HIP/TF builds):
   - `/opt/rocm/lib/llvm/lib/clang/22/include`
-  - Note: for TensorFlow v2.19, `third_party/gpus/rocm_configure.bzl` is extended in the build script because upstream lists built-in clang include dirs only up to v20.
+  - Note: for TensorFlow v2.20, `third_party/gpus/rocm_configure.bzl` is extended in the build script because upstream lists built-in clang include dirs only up to v20.
 
 ## Quick start
 

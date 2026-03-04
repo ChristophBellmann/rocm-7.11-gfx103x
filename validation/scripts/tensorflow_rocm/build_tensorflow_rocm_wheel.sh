@@ -13,7 +13,13 @@ TF_REF="${TF_REF:-v2.20.0}"
 BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-${WORK_ROOT}/bin}"
 BAZELISK="${BAZELISK:-${BAZEL_BIN_DIR}/bazelisk}"
 WHEEL_OUT_DIR="${WHEEL_OUT_DIR:-${ROOT}/validation/workspace/cache/wheels/tensorflow_rocm_custom}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-${ROOT}/validation/workspace/cache/xdg}"
+BAZELISK_HOME="${BAZELISK_HOME:-${ROOT}/validation/workspace/cache/bazelisk}"
+BAZEL_OUTPUT_USER_ROOT="${BAZEL_OUTPUT_USER_ROOT:-${ROOT}/validation/workspace/cache/bazel/output_user_root}"
+CCACHE_DIR="${CCACHE_DIR:-${ROOT}/validation/workspace/cache/ccache}"
+BUILD_START_LOG="${BUILD_START_LOG:-${WORK_ROOT}/build_start.log}"
 DO_UPDATE="${DO_UPDATE:-1}"
+BAZEL_VERBOSE_FAILURES="${BAZEL_VERBOSE_FAILURES:-1}"
 
 if [[ "${WORK_ROOT}" != /* ]]; then
   WORK_ROOT="${ROOT}/${WORK_ROOT}"
@@ -30,13 +36,125 @@ fi
 if [[ "${WHEEL_OUT_DIR}" != /* ]]; then
   WHEEL_OUT_DIR="${ROOT}/${WHEEL_OUT_DIR}"
 fi
+if [[ "${XDG_CACHE_HOME}" != /* ]]; then
+  XDG_CACHE_HOME="${ROOT}/${XDG_CACHE_HOME}"
+fi
+if [[ "${BAZELISK_HOME}" != /* ]]; then
+  BAZELISK_HOME="${ROOT}/${BAZELISK_HOME}"
+fi
+if [[ "${BAZEL_OUTPUT_USER_ROOT}" != /* ]]; then
+  BAZEL_OUTPUT_USER_ROOT="${ROOT}/${BAZEL_OUTPUT_USER_ROOT}"
+fi
+if [[ "${CCACHE_DIR}" != /* ]]; then
+  CCACHE_DIR="${ROOT}/${CCACHE_DIR}"
+fi
+if [[ "${BUILD_START_LOG}" != /* ]]; then
+  BUILD_START_LOG="${ROOT}/${BUILD_START_LOG}"
+fi
 if [[ -z "${PYTHON_BIN}" ]]; then
   PYTHON_BIN="${VENV_DIR}/bin/python"
 elif [[ "${PYTHON_BIN}" != /* ]]; then
   PYTHON_BIN="${ROOT}/${PYTHON_BIN}"
 fi
 
-mkdir -p "${WORK_ROOT}" "${BAZEL_BIN_DIR}" "${WHEEL_OUT_DIR}"
+mkdir -p "${WORK_ROOT}" "${BAZEL_BIN_DIR}" "${WHEEL_OUT_DIR}" \
+  "${XDG_CACHE_HOME}" "${BAZELISK_HOME}" "${BAZEL_OUTPUT_USER_ROOT}" "${CCACHE_DIR}"
+mkdir -p "$(dirname "${BUILD_START_LOG}")"
+: > "${BUILD_START_LOG}"
+# Keep a stable live log for `less +F .../build_start.log` regardless of caller.
+exec > >(tee -a "${BUILD_START_LOG}") 2>&1
+export XDG_CACHE_HOME
+export BAZELISK_HOME
+export CCACHE_DIR
+export CCACHE_BASEDIR="${TF_SRC_DIR}"
+export CCACHE_COMPILERCHECK=content
+
+# Require ROCm LLVM toolchain for ROCm builds; do not fallback to system clang.
+# Prefer in-tree TheRock stage-2 toolchain when present.
+if [[ -x "${ROOT}/build-stage2/dist/rocm/llvm/bin/clang" && -x "${ROOT}/build-stage2/dist/rocm/llvm/bin/clang++" ]]; then
+  DEFAULT_REAL_CLANG="${ROOT}/build-stage2/dist/rocm/llvm/bin/clang"
+  DEFAULT_REAL_CLANGXX="${ROOT}/build-stage2/dist/rocm/llvm/bin/clang++"
+else
+  DEFAULT_REAL_CLANG="${ROCM_PATH}/llvm/bin/clang"
+  DEFAULT_REAL_CLANGXX="${ROCM_PATH}/llvm/bin/clang++"
+fi
+REAL_CLANG="${REAL_CLANG:-${DEFAULT_REAL_CLANG}}"
+REAL_CLANGXX="${REAL_CLANGXX:-${DEFAULT_REAL_CLANGXX}}"
+if [[ ! -x "${REAL_CLANG}" || ! -x "${REAL_CLANGXX}" ]]; then
+  echo "ERROR: Required ROCm clang toolchain not found/executable." >&2
+  echo "Expected: ${ROCM_PATH}/llvm/bin/clang and clang++" >&2
+  echo "Set ROCM_PATH correctly or provide REAL_CLANG/REAL_CLANGXX explicitly." >&2
+  exit 1
+fi
+CCACHE_CLANG_WRAPPER="${BAZEL_BIN_DIR}/clang_ccache_wrapper.sh"
+CCACHE_CLANGXX_WRAPPER="${BAZEL_BIN_DIR}/clangxx_ccache_wrapper.sh"
+cat > "${CCACHE_CLANG_WRAPPER}" <<EOF
+#!/usr/bin/env bash
+exec /usr/bin/ccache "${REAL_CLANG}" "\$@"
+EOF
+cat > "${CCACHE_CLANGXX_WRAPPER}" <<EOF
+#!/usr/bin/env bash
+exec /usr/bin/ccache "${REAL_CLANGXX}" "\$@"
+EOF
+chmod +x "${CCACHE_CLANG_WRAPPER}" "${CCACHE_CLANGXX_WRAPPER}"
+export CC="${CCACHE_CLANG_WRAPPER}"
+export CXX="${CCACHE_CLANGXX_WRAPPER}"
+
+patch_rocm_crosstool_builtin_includes() {
+  local clang_resource_dir crosstool_build real_clang_dir
+  clang_resource_dir="$("${REAL_CLANG}" --print-resource-dir 2>/dev/null || true)"
+  real_clang_dir="$(cd "$(dirname "${REAL_CLANG}")" && pwd)"
+  crosstool_build="${TF_SRC_DIR}/bazel-tensorflow/external/local_config_rocm/crosstool/BUILD"
+
+  if [[ ! -f "${crosstool_build}" ]]; then
+    return 0
+  fi
+
+  "${PYTHON_BIN}" - "${crosstool_build}" "${clang_resource_dir}" "${real_clang_dir}" <<'PY'
+import pathlib
+import re
+import sys
+import glob
+import os
+
+p = pathlib.Path(sys.argv[1])
+clang_resource_dir = sys.argv[2]
+real_clang_dir = sys.argv[3]
+s = p.read_text()
+
+m = re.search(r'cxx_builtin_include_directories\s*=\s*\[(.*?)\]\s*,', s, re.S)
+if not m:
+    print("WARNING: cxx_builtin_include_directories block not found in local_config_rocm/crosstool/BUILD")
+    raise SystemExit(0)
+
+block = m.group(1)
+add_candidates = []
+if clang_resource_dir:
+    add_candidates.append(os.path.join(clang_resource_dir, "include"))
+# Resolve include dir via compiler binary layout as fallback.
+for d in glob.glob(os.path.join(real_clang_dir, "..", "lib", "clang", "*", "include")):
+    add_candidates.append(os.path.realpath(d))
+    add_candidates.append(os.path.abspath(d))
+
+added = []
+for include_dir in add_candidates:
+    if not os.path.isdir(include_dir):
+        continue
+    needle = f'"{include_dir}"'
+    if needle in block:
+        continue
+    block = block.rstrip() + (", " if block.strip() else "") + needle
+    added.append(include_dir)
+
+new_block = block
+s = s[:m.start(1)] + new_block + s[m.end(1):]
+p.write_text(s)
+if added:
+    print("Patched cxx builtin include dirs:")
+    for d in added:
+        print(f"  - {d}")
+PY
+}
 
 # Ensure Python tooling exists before any in-script patch helpers run.
 if [[ ! -x "${PYTHON_BIN}" ]]; then
@@ -69,7 +187,11 @@ fi
 
 # ROCm tensorflow-upstream carries its own ROCm adaptations.
 # Use a minimal build path and skip downstream patch blocks in this script.
-if [[ "${TF_REPO_URL}" == *"ROCm/tensorflow-upstream"* ]]; then
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+if [[ "${TF_REPO_URL}" == *"ROCm/tensorflow-upstream"* ]] || \
+   [[ "${TF_REPO_URL}" == *"rocm-7.11-tensorflow-gfx103x"* ]] || \
+   [[ "${ORIGIN_URL}" == *"ROCm/tensorflow-upstream"* ]] || \
+   [[ "${ORIGIN_URL}" == *"rocm-7.11-tensorflow-gfx103x"* ]]; then
   # Some ROCm crosstool wrappers invoke `python` via /usr/bin/env.
   ln -sf "${PYTHON_BIN}" "${BAZEL_BIN_DIR}/python"
   "${PYTHON_BIN}" -m pip install -U pip setuptools wheel numpy
@@ -129,6 +251,8 @@ PY
   export TF_NEED_CUDA=0
   export TF_NEED_TENSORRT=0
   export TF_NEED_CLANG=0
+  export TF_ROCM_CLANG=1
+  export CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}"
   export TF_ENABLE_XLA=1
   export TF_ROCM_AMDGPU_TARGETS="gfx1031"
   export ROCM_PATH
@@ -149,13 +273,21 @@ PY
     echo "TensorFlow configure failed with exit code ${cfg_rc}"
     exit "${cfg_rc}"
   fi
+  patch_rocm_crosstool_builtin_includes
 
-  bazelisk build \
+  bazelisk --output_user_root="${BAZEL_OUTPUT_USER_ROOT}" build \
     --config=opt \
     --config=rocm \
+    $( [[ "${BAZEL_VERBOSE_FAILURES}" == "1" ]] && echo "--verbose_failures" ) \
     --jobs="${JOBS}" \
+    --repo_env=TF_ROCM_CLANG=1 \
+    --repo_env=CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}" \
     --action_env=PATH="${PATH}" \
+    --action_env=CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}" \
     --action_env=HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH}" \
+    --action_env=CCACHE_DIR="${CCACHE_DIR}" \
+    --action_env=CCACHE_BASEDIR="${CCACHE_BASEDIR}" \
+    --action_env=CCACHE_COMPILERCHECK="${CCACHE_COMPILERCHECK}" \
     //tensorflow/tools/pip_package:wheel
   ./bazel-bin/tensorflow/tools/pip_package/wheel \
     --output-name tensorflow_rocm_custom \
@@ -1501,6 +1633,8 @@ export TF_NEED_ROCM=1
 export TF_NEED_CUDA=0
 export TF_NEED_TENSORRT=0
 export TF_NEED_CLANG=0
+export TF_ROCM_CLANG=1
+export CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}"
 export TF_ENABLE_XLA=1
 export TF_ROCM_AMDGPU_TARGETS="gfx1031"
 export ROCM_PATH
@@ -1522,13 +1656,21 @@ if [[ "${cfg_rc}" -ne 0 && "${cfg_rc}" -ne 141 ]]; then
   echo "TensorFlow configure failed with exit code ${cfg_rc}"
   exit "${cfg_rc}"
 fi
+patch_rocm_crosstool_builtin_includes
 
-bazelisk build \
+bazelisk --output_user_root="${BAZEL_OUTPUT_USER_ROOT}" build \
   --config=opt \
   --config=rocm \
+  $( [[ "${BAZEL_VERBOSE_FAILURES}" == "1" ]] && echo "--verbose_failures" ) \
   --jobs="${JOBS}" \
+  --repo_env=TF_ROCM_CLANG=1 \
+  --repo_env=CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}" \
   --action_env=PATH="${PATH}" \
+  --action_env=CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}" \
   --action_env=HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH}" \
+  --action_env=CCACHE_DIR="${CCACHE_DIR}" \
+  --action_env=CCACHE_BASEDIR="${CCACHE_BASEDIR}" \
+  --action_env=CCACHE_COMPILERCHECK="${CCACHE_COMPILERCHECK}" \
   //tensorflow/tools/pip_package:wheel
 ./bazel-bin/tensorflow/tools/pip_package/wheel \
   --output-name tensorflow_rocm_custom \
