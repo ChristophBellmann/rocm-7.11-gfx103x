@@ -178,11 +178,16 @@ the custom ROCm stack produced by this repository.
 - Artifacts:
   - build workspace: `validation/workspace/builds/tensorflow_rocm/`
   - wheels: `validation/workspace/cache/wheels/tensorflow_rocm_custom/`
+  - ccache (validation TensorFlow only): `validation/workspace/cache/ccache/`
 - Typical promote target:
   - `/opt/rocm/wheels/tensorflow_rocm_custom/`
 - Default source config:
   - `workloads.tensorflow.repo_url`: `https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git`
   - `workloads.tensorflow.ref`: `r2.20-rocm-enhanced`
+
+Note on cache separation:
+- Core ROCm builds (`build_gfx1031.sh`) use repo-local `.ccache/`.
+- TensorFlow validation build intentionally uses `validation/workspace/cache/ccache/`.
 
 ### Quick post-build verification
 
