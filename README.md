@@ -459,7 +459,7 @@ python -c "import torch; print(torch.__version__); print(torch.version.rocm); pr
 ```
 
 Concrete working example project:
-- `/media/christoph/some_space/rocm711_torch_example`
+- `rocm711_torch_example` (separate workspace folder)
 
 ## TODO
 
