@@ -166,7 +166,10 @@ the custom ROCm stack produced by this repository.
 - Known fork reference (for reproducibility):
   - Repo: `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x`
   - Branch: `christoph/gfx1031-tls-fix`
-  - Commit: `f4660e2`
+  - Commit: `22f739e`
+  - Release tag: `v1.22.2-rocm711-gfx1031-tlsfix1`
+  - Release asset:
+    - `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x/releases/download/v1.22.2-rocm711-gfx1031-tlsfix1/onnxruntime_rocm-1.22.2-cp312-cp312-linux_x86_64.whl`
 - Typical promote target:
   - `/opt/rocm/wheels/onnxruntime_rocm711/`
 - In-tree validation profile:
