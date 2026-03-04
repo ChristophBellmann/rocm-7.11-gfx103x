@@ -159,6 +159,7 @@ def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env
 
     rocm_sdk_version = str(sb.get("rocm_sdk_version", "") or "").strip()
     hashtag = str(sb.get("pytorch_repo_hashtag", "nightly") or "nightly").strip()
+    gitrepo_origin = str(sb.get("gitrepo_origin", "") or "").strip()
 
     pytorch_dir = _as_abs(ctx, str(sb.get("pytorch_dir", ctx.git_cache_dir() / "pytorch")))
     wheels_dir = _as_abs(ctx, str(sb.get("wheels_dir", ctx.cache_dir() / "wheels" / "pytorch")))
@@ -184,6 +185,8 @@ def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env
             "--repo-hashtag",
             hashtag,
         ]
+        if gitrepo_origin:
+            cmd += ["--gitrepo-origin", gitrepo_origin]
         if depth > 0:
             cmd += ["--depth", str(depth)]
         r = run_cmd(ctx.repo_root, env, cmd, t_checkout, log)
@@ -285,6 +288,7 @@ def _ensure_pytorch_source_build_in_tree(
         return StepResult("<meta>", "PyTorch setup", "SKIP", "0ms", "downloads disabled (cannot build torch from source)")
 
     hashtag = str(sb.get("pytorch_repo_hashtag", "nightly") or "nightly").strip()
+    gitrepo_origin = str(sb.get("gitrepo_origin", "") or "").strip()
     pytorch_dir = _as_abs(ctx, str(sb.get("pytorch_dir", ctx.git_cache_dir() / "pytorch_in_tree")))
     wheels_dir = _as_abs(ctx, str(sb.get("wheels_dir", ctx.cache_dir() / "wheels" / "pytorch_in_tree")))
     pip_cache_dir = _as_abs(ctx, str(sb.get("pip_cache_dir", ctx.cache_dir() / "pip")))
@@ -311,6 +315,8 @@ def _ensure_pytorch_source_build_in_tree(
             hashtag,
             "--no-patch",
         ]
+        if gitrepo_origin:
+            cmd += ["--gitrepo-origin", gitrepo_origin]
         if depth > 0:
             cmd += ["--depth", str(depth)]
         rc, dur_ms = _run_logged(ctx.repo_root, env, cmd, t_checkout, log)

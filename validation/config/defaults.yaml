@@ -55,6 +55,8 @@ workloads:
       rocm_sdk_version: "~=7.11.0"
       # Which PyTorch ref/tag/branch to build (default matches external-builds tooling).
       pytorch_repo_hashtag: "nightly"
+      # Fork URL for checkout helper. Keeps source-build lineage reproducible.
+      gitrepo_origin: "https://github.com/ChristophBellmann/rocm-7.11-pytorch-gfx103x.git"
       # Cache dirs (relative to repo root unless absolute).
       pytorch_dir: "validation/workspace/cache/git/pytorch"
       wheels_dir: "validation/workspace/cache/wheels/pytorch"
@@ -123,7 +125,7 @@ workloads:
     min_bench_s: 5.0
   onnxruntime:
     # Build settings for validation/src/steps/workloads/onnxruntime/rocm_wheel.py
-    repo_url: "https://github.com/ChristophBellmann/onnxruntime.git"
+    repo_url: "https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x.git"
     ref: "christoph/gfx1031-tls-fix"
     jobs: 24
     rocm_path: "/opt/rocm"
@@ -134,12 +136,13 @@ workloads:
     do_update: true
   tensorflow:
     # Build settings for validation/src/steps/workloads/tensorflow/rocm_wheel.py
-    repo_url: "https://github.com/ROCm/tensorflow-upstream.git"
+    repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"
     ref: "r2.20-rocm-enhanced"
     jobs: 24
     rocm_path: "/opt/rocm"
     work_root: "validation/workspace/builds/tensorflow_rocm"
     wheel_out_dir: "validation/workspace/cache/wheels/tensorflow_rocm_custom"
+    do_update: true
 
 steps:
   rocm_sanity: true

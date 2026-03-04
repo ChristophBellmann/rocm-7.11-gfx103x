@@ -162,7 +162,7 @@ the custom ROCm stack produced by this repository.
   - build workspace: `validation/workspace/builds/onnxruntime_rocm/`
   - wheels: `validation/workspace/cache/wheels/onnxruntime_rocm711/`
 - Known fork reference (for reproducibility):
-  - Repo: `https://github.com/ChristophBellmann/onnxruntime`
+  - Repo: `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x`
   - Branch: `christoph/gfx1031-tls-fix`
   - Commit: `f4660e2`
 - Typical promote target:
@@ -181,7 +181,7 @@ the custom ROCm stack produced by this repository.
 - Typical promote target:
   - `/opt/rocm/wheels/tensorflow_rocm_custom/`
 - Default source config:
-  - `workloads.tensorflow.repo_url`: `https://github.com/ROCm/tensorflow-upstream.git`
+  - `workloads.tensorflow.repo_url`: `https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git`
   - `workloads.tensorflow.ref`: `r2.20-rocm-enhanced`
 
 ### Quick post-build verification

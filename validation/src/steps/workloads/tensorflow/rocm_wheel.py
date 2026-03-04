@@ -59,6 +59,7 @@ def step_tensorflow_rocm_wheel(
         step_env["WORK_ROOT"] = str(wl.get("work_root"))
     if wl.get("wheel_out_dir"):
         step_env["WHEEL_OUT_DIR"] = str(wl.get("wheel_out_dir"))
+    step_env["DO_UPDATE"] = "1" if bool(wl.get("do_update", True)) else "0"
 
     timeout_s = int(cfg.get("timeouts_s", {}).get("tensorflow_build", 43200))
     r = run_cmd(repo_root, step_env, ["bash", str(script)], timeout_s, log)

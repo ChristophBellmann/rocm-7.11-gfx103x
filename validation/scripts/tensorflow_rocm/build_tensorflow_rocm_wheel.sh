@@ -13,6 +13,7 @@ TF_REF="${TF_REF:-v2.20.0}"
 BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-${WORK_ROOT}/bin}"
 BAZELISK="${BAZELISK:-${BAZEL_BIN_DIR}/bazelisk}"
 WHEEL_OUT_DIR="${WHEEL_OUT_DIR:-${ROOT}/validation/workspace/cache/wheels/tensorflow_rocm_custom}"
+DO_UPDATE="${DO_UPDATE:-1}"
 
 if [[ "${WORK_ROOT}" != /* ]]; then
   WORK_ROOT="${ROOT}/${WORK_ROOT}"
@@ -54,10 +55,15 @@ if [[ ! -d "${TF_SRC_DIR}/.git" ]]; then
 fi
 
 cd "${TF_SRC_DIR}"
-git fetch --tags --all
+if [[ "${DO_UPDATE}" == "1" ]]; then
+  git fetch --tags --all
+fi
 # Reset tracked file modifications from previous patch runs before switching tags.
 git restore --worktree --staged . || true
 git checkout "${TF_REF}"
+if [[ "${DO_UPDATE}" == "1" ]]; then
+  git pull --ff-only || true
+fi
 [[ -f third_party/gpus/rocm_configure.bzl ]] && git restore --worktree --staged third_party/gpus/rocm_configure.bzl || true
 [[ -f third_party/xla/third_party/gpus/rocm_configure.bzl ]] && git restore --worktree --staged third_party/xla/third_party/gpus/rocm_configure.bzl || true
 

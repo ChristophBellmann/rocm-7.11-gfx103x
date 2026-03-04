@@ -2,7 +2,7 @@
 
 ## Current Configuration
 
-- Branch: `hashcat/rocm-7.11-gfx103X`
+- Branch: `rocm-7.11-gfx103x`
 - Configure helper: `./build_gfx1031.sh configure` (reads defaults from `config_gfx1031.yaml`)
 - Build helper: `./build_gfx1031.sh bootstrap` then `./build_gfx1031.sh build` (uses `ninja`, not `cmake --build`)
 - Targets: `THEROCK_AMDGPU_TARGETS=gfx1031`

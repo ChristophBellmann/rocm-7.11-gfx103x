@@ -54,8 +54,8 @@ This repo can build the AMD OpenCL runtime (`features.enable_ocl_runtime: true`)
 
 ## Status (2026-03-01)
 
-- Active working branch: `hashcat/rocm-7.11-gfx103X`.
-- Current HEAD: `30637be`.
+- Active working branch: `rocm-7.11-gfx103x`.
+- Current HEAD: `20e6e1c`.
 - For recent downstream validation/wheel workflows, **no new source changes** were committed in this repo.
 - This TheRock state remains the base for the custom ROCm stack and wheels in `/opt/rocm/wheels/...`.
 
