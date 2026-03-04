@@ -50,10 +50,7 @@ Enable in CMake:
 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 ```
 
-Cache layout in this repo:
-- Core ROCm build (`build_gfx1031.sh`) uses repo-local `.ccache/` via `build_tools/setup_ccache.py`.
-- Validation TensorFlow build uses a separate cache: `validation/workspace/cache/ccache/`.
-- This separation is intentional (core build vs. validation workload cache).
+Cache note: Core ROCm builds (`build_gfx1031.sh`) use repo-local `.ccache/`.
 
 If docker is installed, ensure your user can run it:
 ```bash
