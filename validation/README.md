@@ -149,7 +149,7 @@ the custom ROCm stack produced by this repository.
   - `external-builds/pytorch/build_prod_wheels.py`
 - Known fork reference (for reproducibility):
   - Repo: `https://github.com/ChristophBellmann/rocm-7.11-pytorch-gfx103x`
-  - Branch: `christoph/miopen-workspace-fix`
+  - Branch: `christoph/gfx1031-buildfixes`
 - Typical wheel output:
   - `validation/workspace/cache/wheels/pytorch_rocm711/` (or configured wheel dir)
 - Typical promote target:
@@ -170,7 +170,7 @@ the custom ROCm stack produced by this repository.
   - wheels: `validation/workspace/cache/wheels/onnxruntime_rocm711/`
 - Known fork reference (for reproducibility):
   - Repo: `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x`
-  - Branch: `christoph/gfx1031-tls-fix`
+  - Branch: `christoph/gfx1031-buildfixes`
   - Commit: `22f739e`
   - Release tag: `v1.22.2-rocm711-gfx1031-tlsfix1`
   - Release asset:
