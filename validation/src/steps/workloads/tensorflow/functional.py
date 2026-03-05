@@ -18,6 +18,13 @@ def _latest_wheel(wheel_dir: Path) -> Path | None:
     return wheels[0] if wheels else None
 
 
+def _resolve_repo_path(repo_root: Path, value: str | Path) -> Path:
+    p = Path(value)
+    if not p.is_absolute():
+        p = repo_root / p
+    return p
+
+
 def _matmul_script() -> str:
     return r"""
 import os
@@ -106,13 +113,14 @@ def step_tensorflow_matmul(
     use_in_tree = bool(wl.get("use_in_tree_rocm", False))
     run_env = dict(env if use_in_tree else deactivated_env(env, rocm_dist))
 
-    wheel_out_dir = Path(
+    wheel_out_dir = _resolve_repo_path(
+        ctx.repo_root,
         str(
             wl.get(
                 "wheel_out_dir",
                 ctx.repo_root / "validation" / "workspace" / "cache" / "wheels" / "tensorflow_rocm_custom",
             )
-        )
+        ),
     )
     wheel = _latest_wheel(wheel_out_dir)
     if wheel is None:

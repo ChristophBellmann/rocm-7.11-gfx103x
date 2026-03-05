@@ -6,8 +6,8 @@ run:
 
 steps:
   rocm_sanity: true
-  rocm_bench_smoke: false
-  miopen_smoke: false
+  rocm_bench_smoke: true
+  miopen_smoke: true
   llama_cpp_docker: false
   ollama: false
   open_interpreter: false
@@ -17,3 +17,14 @@ steps:
   petsc_hip: false
   tensorflow_rocm_wheel: true
   tensorflow_functional: true
+
+workloads:
+  tensorflow:
+    repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"
+    ref: "christoph/gfx1031-buildfixes"
+    rocm_path: "build-stage2/dist/rocm"
+    use_in_tree_rocm: true
+    disable_hipblaslt: 1
+    use_hipblaslt: 0
+    disable_hipblaslt_init: 1
+    require_rocm_prefix: "in-tree"
