@@ -16,4 +16,4 @@ steps:
   pytorch: false
   petsc_hip: false
   tensorflow_rocm_wheel: true
-
+  tensorflow_functional: true

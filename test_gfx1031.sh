@@ -17,9 +17,12 @@ RUN_SANITY=1
 RUN_BENCH=0
 RUN_MIOPEN=0
 RUN_MIOPEN_SMOKE=0
+RUN_CORE_LOAD=0
 # Default: power sampling enabled (per-test 5s idle baseline + dW).
 RUN_POWER=1
 BUILD_DIR="${BUILD_DIR:-}"
+USE_SYSTEM_ROCM=0
+SYSTEM_ROCM_PATH="${SYSTEM_ROCM_PATH:-}"
 RUN_CONSISTENCY=0
 CONSISTENCY_DEEP=0
 EXPECT_STAGE="" # "", "stage1", "stage2"
@@ -282,7 +285,7 @@ LAST_MODEL_KIND="${LAST_MODEL_KIND:-}"
 print_ops_data_model() {
   # Emits a short, concrete mathematical model for ops/data based on the bench kind.
   # This is *not* a performance claim; it is a parameter-based accounting sketch.
-  local kind="$1"   # GEMM|QR|LU|AXPYI|FFT|RNG
+  local kind="$1"   # GEMM|QR|LU|AXPYI|FFT|RNG|HIPLOAD|CONV
   local do_full=1
   if [[ -n "${LAST_MODEL_KIND}" && "${LAST_MODEL_KIND}" == "${kind}" ]]; then
     do_full=0
@@ -293,26 +296,29 @@ print_ops_data_model() {
     return 0
   fi
 
+  print_colorized_text "- Notation: ops = algorithmic operation count of the kernel math (model), not a hardware counter."
+  print_colorized_text "- Notation: data = logical tensor I/O bytes touched (reads+writes) by that math model, not measured DRAM traffic."
+
   case "${kind}" in
     GEMM)
       print_colorized_text "- Interpretation: each output element C[i,j] is a length-k dot product, then scaled (α) and accumulated with the prior C via β."
       print_colorized_text "- ops_FLOP ≈ iters · 2·m·n·k (multiply+add) (optionally + iters·2·m·n for β·C + …; usually negligible)"
-      print_colorized_text "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (minimum touched bytes; reuse/caches ignored)"
+      print_colorized_text "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + 2·sizeof(C)·m·n) (C is read+written once per update; cache/reuse effects excluded)"
       ;;
     QR)
       print_colorized_text "- Interpretation: for each matrix in the batch, compute A=Q·R with Qᵀ·Q=I (m×n, m≥n), repeated iters times."
       print_colorized_text "- ops_FLOP ≈ batch · iters · (2·m·n² − (2/3)·n³) (for m≥n, Householder-QR; rough)"
-      print_colorized_text "- data_B ≈ batch · (sizeof(A)·m·n + sizeof(tau)·n) (+ workspace, implementation-dependent)"
+      print_colorized_text "- data_B ≈ batch · (sizeof(A)·m·n + sizeof(tau)·n) (+ workspace and panel traffic, implementation-dependent)"
       ;;
     LU)
       print_colorized_text "- Interpretation: factor A with partial pivoting into P·A=L·U (P is a permutation), repeated iters times."
       print_colorized_text "- ops_FLOP ≈ iters · (2/3)·n³ (for n×n)"
-      print_colorized_text "- data_B ≈ iters · sizeof(A)·n² (+ pivots/workspace)"
+      print_colorized_text "- data_B ≈ iters · sizeof(A)·n² (+ pivot vector/workspace traffic)"
       ;;
     AXPYI)
       print_colorized_text "- Interpretation: stream nnz indexed updates y[i_j] += α·x_j; nnz_eff reflects how many distinct y entries are touched."
       print_colorized_text "- ops_FLOP ≈ iters · 2·nnz (multiply+add)"
-      print_colorized_text "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + sizeof(y)·nnz_eff) (nnz_eff depends on index repeats)"
+      print_colorized_text "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + 2·sizeof(y)·nnz_eff) (y is read+written; nnz_eff depends on index repeats)"
       ;;
     FFT)
       print_colorized_text "- Interpretation: compute batched N-point forward DFTs; complexity is Θ(N·log2(N)) per transform (constant depends on the plan/kernels)."
@@ -323,6 +329,16 @@ print_ops_data_model() {
       print_colorized_text "- Interpretation: generate count independent, identically distributed samples xᵢ ∼ U(0,1) and write them out, repeated iters times."
       print_colorized_text "- ops_samples = iters · count"
       print_colorized_text "- data_B ≈ iters · count · sizeof(output)"
+      ;;
+    HIPLOAD)
+      print_colorized_text "- Interpretation: launch a native HIP kernel repeatedly; each thread performs inner fused multiply-add updates on its element and writes the result back."
+      print_colorized_text "- ops_FLOP ≈ reps · N · 2·inner (dominant FMA term; scalar update overhead omitted)"
+      print_colorized_text "- data_B ≈ reps · N · (read A + read B + read/write C) ≈ reps · N · (4+4+8) B"
+      ;;
+    CONV)
+      print_colorized_text "- Interpretation: run repeated forward 2D convolutions (NCHW) to sustain MIOpen kernel execution and runtime scheduling."
+      print_colorized_text "- ops_FLOP ≈ reps · 2·N·H_out·W_out·K·C·Y·X (multiply+add MAC accounting)"
+      print_colorized_text "- data_B ≈ reps · (sizeof(X)·N·C·H·W + sizeof(W)·K·C·Y·X + sizeof(Y)·N·K·H_out·W_out)"
       ;;
   esac
 
@@ -373,8 +389,10 @@ usage() {
 Usage: test_gfx1031.sh [options]
 
 Default behavior:
-  - If invoked with no args in an interactive terminal (TTY): opens the interactive bench menu (1–9).
+  - If invoked with no args in an interactive terminal (TTY): opens the interactive bench menu (1–12).
   - Otherwise: runs sanity checks only (no benchmarks).
+  - ROCm source defaults to in-tree build output (`<repo>/<build-dir>/dist/rocm`).
+    System ROCm is only used with `--system-rocm` / `--system-rocm-path`.
   - Power sampling is ON by default (5s idle baseline + per-test energy/utilization).
 
 Options:
@@ -384,12 +402,14 @@ Options:
   --no-power     Disable power sampling (override default)
   --bench        Run performance benchmarks (in addition to sanity)
   --bench-lite   Run only the lightweight BLAS GEMM benchmarks (rocBLAS + hipBLAS)
-  --bench-menu   Interactive bench menu (select 1-9; 0=all; q=quit)
+  --bench-menu   Interactive bench menu (select 1-12; 0=all; q=quit)
   --log [file]   Enable logging to file (default: test_gfx1031.log)
   --no-bench     Skip performance benchmarks (default)
   --bench-only   Run benchmarks only (no sanity)
   --miopen       Check MIOpen + composable_kernel artifacts (and MIOpenDriver --version if present)
   --miopen-smoke Run a tiny MIOpenDriver smoke test (may take time on first run)
+  --core-load    Run lightweight component load tests (HIP/HSA, rocBLAS, MIOpen)
+  --no-core-load Disable component load tests
   --consistency  Run build/toolchain consistency checks
   --consistency-only
                 Run consistency checks only
@@ -402,6 +422,10 @@ Options:
   --stage2       Use BUILD_DIR=build-stage2
   --build-dir <dir>
                 Override build directory (default: auto; prefers build-stage2, then build, then build-stage1)
+  --system-rocm
+                Use system ROCm instead of in-tree build ROCm (default system path: /opt/rocm)
+  --system-rocm-path <dir>
+                Use system ROCm from explicit path (implies --system-rocm)
   -h, --help     Show this help
 
 Environment overrides:
@@ -409,6 +433,8 @@ Environment overrides:
   BENCH_ITERS      override iterations (default 10 quick, 20 full)
   TEST_LOG         override log file (only used if --log is set)
   BUILD_DIR        force a specific build directory (disables auto-multi-builddir loop)
+  ROCM_PATH        ignored by default; only used when --system-rocm is selected
+  SYSTEM_ROCM_PATH default path for --system-rocm (if --system-rocm-path is not set)
   TEST_GFX1031_SINGLE
                   set to 1 to disable auto-multi-builddir loop
   TEST_SKIP_VENV   set to 1 to skip activating .venv (useful in containers)
@@ -462,6 +488,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --bench)
       RUN_BENCH=1
+      RUN_CORE_LOAD=1
       shift
       ;;
     --bench-lite)
@@ -502,6 +529,14 @@ while [[ $# -gt 0 ]]; do
       RUN_MIOPEN_SMOKE=1
       shift
       ;;
+    --core-load)
+      RUN_CORE_LOAD=1
+      shift
+      ;;
+    --no-core-load)
+      RUN_CORE_LOAD=0
+      shift
+      ;;
     --consistency)
       RUN_CONSISTENCY=1
       shift
@@ -537,6 +572,15 @@ while [[ $# -gt 0 ]]; do
     --build-dir)
       BUILD_DIR="${2:-}"
       USER_SELECTED_BUILD_DIR=1
+      shift 2
+      ;;
+    --system-rocm)
+      USE_SYSTEM_ROCM=1
+      shift
+      ;;
+    --system-rocm-path)
+      USE_SYSTEM_ROCM=1
+      SYSTEM_ROCM_PATH="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -652,7 +696,17 @@ if (( LOG_ENABLED )); then
 fi
 
 ROCM_PATH_DEFAULT="${ROOT}/${BUILD_DIR}/dist/rocm"
-ROCM_PATH="${ROCM_PATH:-${ROCM_PATH_DEFAULT}}"
+if (( USE_SYSTEM_ROCM )); then
+  if [[ -n "${SYSTEM_ROCM_PATH}" ]]; then
+    ROCM_PATH="${SYSTEM_ROCM_PATH}"
+  elif [[ -n "${ROCM_PATH:-}" ]]; then
+    ROCM_PATH="${ROCM_PATH}"
+  else
+    ROCM_PATH="/opt/rocm"
+  fi
+else
+  ROCM_PATH="${ROCM_PATH_DEFAULT}"
+fi
 HAVE_ROCM_ENV=0
 if [[ -d "${ROCM_PATH}" ]]; then
   HAVE_ROCM_ENV=1
@@ -678,7 +732,11 @@ if [[ -d "${ROCM_PATH}" ]]; then
       export HIP_DEVICE_LIB_PATH="$ROCM_PATH/amdgcn/bitcode"
     fi
   fi
-  echo "${C_GREEN}Activated in-tree ROCm:${C_RESET} ${ROCM_PATH}" | tee -a "${LOG_FILE}"
+  if (( USE_SYSTEM_ROCM )); then
+    echo "${C_GREEN}Activated system ROCm:${C_RESET} ${ROCM_PATH}" | tee -a "${LOG_FILE}"
+  else
+    echo "${C_GREEN}Activated in-tree ROCm:${C_RESET} ${ROCM_PATH}" | tee -a "${LOG_FILE}"
+  fi
 else
   if (( RUN_SANITY )) || (( RUN_BENCH )); then
     echo "ROCM_PATH not found: ${ROCM_PATH}" | tee -a "${LOG_FILE}" >&2
@@ -788,7 +846,7 @@ print_summary_table() {
     printf "  %6.3fs  %-28.28s\n" "${seconds}" "${perf}" | tee -a "${LOG_FILE}"
 
     # Bench rows get a second line with energy/utilization fields (if power is enabled and available).
-    if [[ "${label}" == bench:* ]] && (( RUN_POWER )) && [[ -n "${power}" ]]; then
+    if (( RUN_POWER )) && [[ -n "${power}" ]] && [[ "${label}" == bench:* || "${label}" == *" load"* ]]; then
       local e="" avgw="" maxw="" dw="" gpu="" mem=""
       if [[ -n "${power}" ]]; then
         e="$(extract_power_field "${power}" "E")"
@@ -1104,6 +1162,254 @@ check_runtime_linkage() {
   done
 }
 
+find_rocm_lib() {
+  local soname="$1"
+  local p
+  for p in \
+    "${ROCM_PATH}/lib/${soname}" \
+    "${ROCM_PATH}/lib64/${soname}" \
+    "${ROCM_PATH}/lib/${soname}".* \
+    "${ROCM_PATH}/lib64/${soname}".*; do
+    if compgen -G "${p}" >/dev/null 2>&1; then
+      compgen -G "${p}" | head -n 1
+      return 0
+    fi
+  done
+  return 1
+}
+
+check_rocm_core_components() {
+  local label_prefix="$1"
+  local lib
+
+  if (( HAVE_ROCM_ENV == 0 )); then
+    add_result "${label_prefix} HIP runtime" "SKIP" "0s" "ROCM_PATH missing"
+    add_result "${label_prefix} HSA runtime" "SKIP" "0s" "ROCM_PATH missing"
+    add_result "${label_prefix} rocBLAS" "SKIP" "0s" "ROCM_PATH missing"
+    add_result "${label_prefix} MIOpen" "SKIP" "0s" "ROCM_PATH missing"
+    return 0
+  fi
+
+  if lib="$(find_rocm_lib "libamdhip64.so")"; then
+    add_result "${label_prefix} HIP runtime" "OK" "0s" "${lib}"
+  else
+    add_result "${label_prefix} HIP runtime" "FAIL" "0s" "libamdhip64.so not found under ${ROCM_PATH}/lib{,64}"
+  fi
+
+  if lib="$(find_rocm_lib "libhsa-runtime64.so")"; then
+    add_result "${label_prefix} HSA runtime" "OK" "0s" "${lib}"
+  else
+    add_result "${label_prefix} HSA runtime" "FAIL" "0s" "libhsa-runtime64.so not found under ${ROCM_PATH}/lib{,64}"
+  fi
+
+  if lib="$(find_rocm_lib "librocblas.so")"; then
+    add_result "${label_prefix} rocBLAS" "OK" "0s" "${lib}"
+  else
+    add_result "${label_prefix} rocBLAS" "FAIL" "0s" "librocblas.so not found under ${ROCM_PATH}/lib{,64}"
+  fi
+
+  if lib="$(find_rocm_lib "libMIOpen.so")"; then
+    add_result "${label_prefix} MIOpen" "OK" "0s" "${lib}"
+  else
+    add_result "${label_prefix} MIOpen" "SKIP" "0s" "libMIOpen.so not found (component may be disabled)"
+  fi
+
+  if command -v rocblas-bench >/dev/null 2>&1; then
+    run_timed "${label_prefix} rocBLAS --version" "typ. <1s" rocblas-bench --version || true
+  else
+    add_result "${label_prefix} rocBLAS --version" "SKIP" "0s" "rocblas-bench not in PATH"
+  fi
+
+  local drv=""
+  if drv="$(miopen_find_driver)"; then
+    run_timed "${label_prefix} MIOpen --version" "typ. <1s" "${drv}" --version || true
+  else
+    add_result "${label_prefix} MIOpen --version" "SKIP" "0s" "MIOpenDriver/miopen-driver not in PATH"
+  fi
+}
+
+run_rocm_core_component_load_tests() {
+  local label_prefix="$1"
+  shift
+  local -a selected=("$@")
+  local timeout_s="${BENCH_TIMEOUT_S:-300}"
+  local expected_load="typ. 5-30s"
+  local hip_n hip_reps hip_inner
+  local rb_m rb_n rb_k rb_iters rb_cold
+  local mi_n mi_c mi_h mi_w mi_k mi_y mi_x mi_reps
+
+  if [[ "${MODE}" == "full" ]]; then
+    hip_n="${CORE_HIP_N:-16777216}"
+    hip_reps="${CORE_HIP_REPS:-900}"
+    hip_inner="${CORE_HIP_INNER:-160}"
+    rb_m="${CORE_ROCBLAS_M:-6144}"
+    rb_n="${CORE_ROCBLAS_N:-6144}"
+    rb_k="${CORE_ROCBLAS_K:-6144}"
+    rb_iters="${CORE_ROCBLAS_ITERS:-120}"
+    rb_cold="${CORE_ROCBLAS_COLD_ITERS:-8}"
+    mi_n="${CORE_MIOPEN_N:-32}"
+    mi_c="${CORE_MIOPEN_C:-64}"
+    mi_h="${CORE_MIOPEN_H:-128}"
+    mi_w="${CORE_MIOPEN_W:-128}"
+    mi_k="${CORE_MIOPEN_K:-128}"
+    mi_y="${CORE_MIOPEN_Y:-3}"
+    mi_x="${CORE_MIOPEN_X:-3}"
+    mi_reps="${CORE_MIOPEN_REPS:-12}"
+  else
+    hip_n="${CORE_HIP_N:-8388608}"
+    hip_reps="${CORE_HIP_REPS:-2000}"
+    hip_inner="${CORE_HIP_INNER:-128}"
+    rb_m="${CORE_ROCBLAS_M:-4096}"
+    rb_n="${CORE_ROCBLAS_N:-4096}"
+    rb_k="${CORE_ROCBLAS_K:-4096}"
+    rb_iters="${CORE_ROCBLAS_ITERS:-420}"
+    rb_cold="${CORE_ROCBLAS_COLD_ITERS:-6}"
+    mi_n="${CORE_MIOPEN_N:-16}"
+    mi_c="${CORE_MIOPEN_C:-64}"
+    mi_h="${CORE_MIOPEN_H:-112}"
+    mi_w="${CORE_MIOPEN_W:-112}"
+    mi_k="${CORE_MIOPEN_K:-128}"
+    mi_y="${CORE_MIOPEN_Y:-3}"
+    mi_x="${CORE_MIOPEN_X:-3}"
+    mi_reps="${CORE_MIOPEN_REPS:-16}"
+  fi
+
+  load_selected() {
+    local idx="$1"
+    if (( ${#selected[@]} == 0 )); then
+      return 0
+    fi
+    local s
+    for s in "${selected[@]}"; do
+      if [[ "${s}" == "${idx}" ]]; then
+        return 0
+      fi
+    done
+    return 1
+  }
+
+  if (( HAVE_ROCM_ENV == 0 )); then
+    if load_selected 10; then
+      add_result "${label_prefix} HIP/HSA load" "SKIP" "0s" "ROCM_PATH missing"
+    fi
+    if load_selected 11; then
+      add_result "${label_prefix} rocBLAS load" "SKIP" "0s" "ROCM_PATH missing"
+    fi
+    if load_selected 12; then
+      add_result "${label_prefix} MIOpen load" "SKIP" "0s" "ROCM_PATH missing"
+    fi
+    return 0
+  fi
+
+  if load_selected 10 && command -v hipcc >/dev/null 2>&1; then
+    BENCH_META_STATS=""
+    local hip_ops hip_bytes
+    hip_ops="$(awk -v n="${hip_n}" -v r="${hip_reps}" -v inr="${hip_inner}" 'BEGIN{printf "%.0f", 2.0*n*inr*r}')"
+    hip_bytes="$(awk -v n="${hip_n}" -v r="${hip_reps}" 'BEGIN{printf "%.0f", 16.0*n*r}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${hip_ops}" "FLOP" "${hip_bytes}")"
+    run_bench_with_timeout "bench: ${label_prefix} HIP/HSA load" "${expected_load}" "${timeout_s}" \
+      env CORE_HIP_N="${hip_n}" CORE_HIP_REPS="${hip_reps}" CORE_HIP_INNER="${hip_inner}" \
+      bash -lc '
+        set -euo pipefail
+        src="$(mktemp /tmp/hip_hsa_load.XXXXXX.cpp)"
+        bin="${src%.cpp}.out"
+        trap "rm -f \"$src\" \"$bin\"" EXIT
+        cat >"$src" <<'"'"'CPP'"'"'
+#include <hip/hip_runtime.h>
+#include <cstdio>
+#include <cstdlib>
+
+__global__ void fma_stress(const float* __restrict__ a,
+                           const float* __restrict__ b,
+                           float* __restrict__ c,
+                           int n,
+                           int inner) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  float x = a[i];
+  float y = b[i];
+  float z = c[i];
+  for (int t = 0; t < inner; ++t) {
+    z = fmaf(x, y, z);
+    x = x * 1.000001f + 0.000001f;
+    y = y * 0.999999f + 0.000002f;
+  }
+  c[i] = z;
+}
+
+int main(int argc, char** argv) {
+  int n = (argc > 1) ? std::atoi(argv[1]) : (1 << 23);
+  int reps = (argc > 2) ? std::atoi(argv[2]) : 220;
+  int inner = (argc > 3) ? std::atoi(argv[3]) : 128;
+  if (n <= 0 || reps <= 0 || inner <= 0) return 2;
+
+  size_t bytes = static_cast<size_t>(n) * sizeof(float);
+  float *da = nullptr, *db = nullptr, *dc = nullptr;
+  if (hipMalloc(&da, bytes) != hipSuccess) return 3;
+  if (hipMalloc(&db, bytes) != hipSuccess) return 4;
+  if (hipMalloc(&dc, bytes) != hipSuccess) return 5;
+  if (hipMemset(da, 0x3f, bytes) != hipSuccess) return 6;
+  if (hipMemset(db, 0x40, bytes) != hipSuccess) return 7;
+  if (hipMemset(dc, 0x00, bytes) != hipSuccess) return 8;
+
+  dim3 block(256);
+  dim3 grid((n + block.x - 1) / block.x);
+  for (int r = 0; r < reps; ++r) {
+    hipLaunchKernelGGL(fma_stress, grid, block, 0, 0, da, db, dc, n, inner);
+  }
+  if (hipDeviceSynchronize() != hipSuccess) return 9;
+  float out = 0.0f;
+  if (hipMemcpy(&out, dc, sizeof(float), hipMemcpyDeviceToHost) != hipSuccess) return 10;
+  if (!(out == out)) return 11;
+  hipFree(da);
+  hipFree(db);
+  hipFree(dc);
+  return 0;
+}
+CPP
+        hipcc --offload-arch=gfx1031 -O3 "$src" -o "$bin"
+        "$bin" "${CORE_HIP_N}" "${CORE_HIP_REPS}" "${CORE_HIP_INNER}" >/dev/null
+      ' || true
+    BENCH_META_STATS=""
+  elif load_selected 10; then
+    add_result "${label_prefix} HIP/HSA load" "SKIP" "0s" "hipcc not in PATH"
+  fi
+
+  if load_selected 11 && command -v rocblas-bench >/dev/null 2>&1; then
+    BENCH_META_STATS=""
+    local rb_ops rb_bytes
+    rb_ops="$(awk -v m="${rb_m}" -v n="${rb_n}" -v k="${rb_k}" -v it="${rb_iters}" 'BEGIN{printf "%.0f", 2.0*m*n*k*it}')"
+    rb_bytes="$(awk -v m="${rb_m}" -v n="${rb_n}" -v k="${rb_k}" -v it="${rb_iters}" 'BEGIN{printf "%.0f", (m*k + k*n + 2.0*m*n)*4.0*it}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${rb_ops}" "FLOP" "${rb_bytes}")"
+    run_bench_with_timeout "bench: ${label_prefix} rocBLAS load" "${expected_load}" "${timeout_s}" \
+      rocblas-bench -f gemm -r f32_r -m "${rb_m}" -n "${rb_n}" -k "${rb_k}" --alpha 1.0 --beta 0.0 --iters "${rb_iters}" --cold_iters "${rb_cold}" || true
+    BENCH_META_STATS=""
+  elif load_selected 11; then
+    add_result "${label_prefix} rocBLAS load" "SKIP" "0s" "rocblas-bench not in PATH"
+  fi
+
+  local drv=""
+  if load_selected 12 && drv="$(miopen_find_driver)"; then
+    BENCH_META_STATS=""
+    local mi_ops mi_bytes
+    mi_ops="$(awk -v n="${mi_n}" -v h="${mi_h}" -v w="${mi_w}" -v k="${mi_k}" -v c="${mi_c}" -v y="${mi_y}" -v x="${mi_x}" -v r="${mi_reps}" 'BEGIN{printf "%.0f", 2.0*n*h*w*k*c*y*x*r}')"
+    mi_bytes="$(awk -v n="${mi_n}" -v h="${mi_h}" -v w="${mi_w}" -v k="${mi_k}" -v c="${mi_c}" -v y="${mi_y}" -v x="${mi_x}" -v r="${mi_reps}" 'BEGIN{inb=n*c*h*w; wtb=k*c*y*x; outb=n*k*h*w; printf "%.0f", (inb+wtb+outb)*4.0*r}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${mi_ops}" "FLOP" "${mi_bytes}")"
+    run_bench_with_timeout "bench: ${label_prefix} MIOpen load" "${expected_load}" "${timeout_s}" \
+      env CORE_MIOPEN_REPS="${mi_reps}" \
+      bash -lc '
+        set -euo pipefail
+        drv="$1"; shift
+        for _ in $(seq 1 "${CORE_MIOPEN_REPS}"); do
+          "$drv" conv "$@" >/dev/null
+        done
+      ' _ "${drv}" -n "${mi_n}" -c "${mi_c}" -H "${mi_h}" -W "${mi_w}" -k "${mi_k}" -y "${mi_y}" -x "${mi_x}" -p 1 -q 1 || true
+    BENCH_META_STATS=""
+  elif load_selected 12; then
+    add_result "${label_prefix} MIOpen load" "SKIP" "0s" "MIOpenDriver/miopen-driver not in PATH"
+  fi
+}
+
 extract_gflops() {
   local file="$1"
   local gflops
@@ -1240,7 +1546,7 @@ print_bench_menu() {
   cat <<'EOF_BENCH_MENU'
 
 Bench menu (gfx1031):
-  0) Run all (1-9)
+  0) Run all (1-12)
   1) rocBLAS GEMM f32
   2) hipBLAS GEMM f32
   3) rocSOLVER geqrf_strided_batched (s)
@@ -1250,8 +1556,13 @@ Bench menu (gfx1031):
   7) rocFFT complex fwd (sustained)
   8) dyna-rocFFT complex fwd (sustained)
   9) rocRAND generate (philox, uniform-float)
+ 10) Component load: HIP/HSA
+ 11) Component load: rocBLAS
+ 12) Component load: MIOpen
 
 Enter one number (e.g. 2) or a list (e.g. 1,2,7). Use 'q' to quit.
+Default ROCm source: in-tree (<repo>/<build-dir>/dist/rocm).
+Use --system-rocm or --system-rocm-path <dir> only when you explicitly want system ROCm.
 EOF_BENCH_MENU
 }
 
@@ -1315,6 +1626,10 @@ print_run_header() {
   local title="$1"
   local build_dir="$2"
   local rocm_path="$3"
+  local rocm_source="in-tree"
+  if (( USE_SYSTEM_ROCM )); then
+    rocm_source="system"
+  fi
 
   local log_state="disabled (use --log [file])"
   if (( LOG_ENABLED )); then
@@ -1324,6 +1639,7 @@ print_run_header() {
   echo "${C_BOLD}${title}${C_RESET}" | tee -a "${LOG_FILE}"
   echo "${C_DIM}- build dir:${C_RESET} ${build_dir}" | tee -a "${LOG_FILE}"
   echo "${C_DIM}- ROCm:${C_RESET} ${rocm_path}" | tee -a "${LOG_FILE}"
+  echo "${C_DIM}- ROCm source:${C_RESET} ${rocm_source}" | tee -a "${LOG_FILE}"
   echo "${C_DIM}- mode:${C_RESET} ${MODE} (BENCH_SIZE=${BENCH_SIZE:-auto}, BENCH_ITERS=${BENCH_ITERS:-auto})" | tee -a "${LOG_FILE}"
   echo "${C_DIM}- logging:${C_RESET} ${log_state}" | tee -a "${LOG_FILE}"
   if (( RUN_POWER )); then
@@ -1683,6 +1999,21 @@ run_bench_with_timeout() {
         formula="xᵢ ∼ U(0,1)"
         desc="GPU pseudorandom variate generation (Philox, counter-based); measures RNG state generation and output write throughput."
         ;;
+      bench:\ component\ HIP/HSA\ load)
+        anchor="HIP"
+        formula="∀i: cᵢ ← FMA_loop(aᵢ, bᵢ, cᵢ; inner), repeated reps times"
+        desc="Native HIP-runtime kernel stress test (direct hipLaunchKernelGGL path). Exercises HSA queueing, dispatch, synchronization, and sustained ALU pressure without BLAS wrappers."
+        ;;
+      bench:\ component\ rocBLAS\ load)
+        anchor="GEMM"
+        formula="C ← α·A·B + β·C   (A∈ℝ^{m×k}, B∈ℝ^{k×n}, C∈ℝ^{m×n})"
+        desc="Sustained rocBLAS GEMM load with larger matrix/iteration settings than smoke-level checks to provide meaningful power/utilization and throughput signal."
+        ;;
+      bench:\ component\ MIOpen\ load)
+        anchor="CONV"
+        formula="Y[n,k,h,w] = ∑_{c,y,x} W[k,c,y,x] · X[n,c,h+y,w+x]"
+        desc="Repeated MIOpen convolution-forward workload to stress tensor-kernel dispatch, runtime graph setup, and memory traffic on a realistic DL primitive."
+        ;;
     esac
     if [[ -n "${anchor}" ]]; then
       print_bench_anchor "${anchor}"
@@ -1694,6 +2025,8 @@ run_bench_with_timeout() {
         AXP) print_ops_data_model "AXPYI" ;;
         FFT) print_ops_data_model "FFT" ;;
         RNG) print_ops_data_model "RNG" ;;
+        HIP) print_ops_data_model "HIPLOAD" ;;
+        CONV) print_ops_data_model "CONV" ;;
       esac
       print_bench_desc "${desc}"
       if [[ -n "${BENCH_META_STATS:-}" ]]; then
@@ -2169,6 +2502,12 @@ if (( RUN_SANITY )); then
   else
     add_result "hipinfo" "SKIP" "0s" "not in PATH (build/install `core-hipinfo` to add it)"
   fi
+
+  check_rocm_core_components "component" || true
+fi
+
+if (( RUN_CORE_LOAD )); then
+  run_rocm_core_component_load_tests "component" || true
 fi
 
 if (( RUN_MIOPEN )); then
@@ -2183,11 +2522,14 @@ if (( RUN_BENCH )); then
     fi
     while true; do
       print_bench_menu | tee -a "${LOG_FILE}"
-      read -r -p "Select bench test (0-9, list, q): " sel
+      read -r -p "Select bench test (0-12, list, q): " sel
       echo "Selection: ${sel}" | tee -a "${LOG_FILE}"
       case "${sel}" in
         q|quit|exit)
           break
+          ;;
+        l|list)
+          continue
           ;;
         "")
           continue
@@ -2209,14 +2551,15 @@ if (( RUN_BENCH )); then
       RESULT_TIME=()
       RESULT_METRIC=()
 
-	      run_bench_suite "${BENCH_TIMEOUT_S}" "${selected_arr[@]}"
-	
-	      echo "" | tee -a "${LOG_FILE}"
-	      print_summary_table "==== gfx1031 test summary ===="
-	      if (( LOG_ENABLED )); then
-	        echo "${C_DIM}Log:${C_RESET} ${LOG_FILE}" | tee -a "${LOG_FILE}"
-	      else
-	        echo "${C_DIM}Log:${C_RESET} (disabled; re-run with --log [file])" | tee -a "${LOG_FILE}"
+      run_bench_suite "${BENCH_TIMEOUT_S}" "${selected_arr[@]}"
+      run_rocm_core_component_load_tests "component" "${selected_arr[@]}" || true
+
+      echo "" | tee -a "${LOG_FILE}"
+      print_summary_table "==== gfx1031 test summary ===="
+      if (( LOG_ENABLED )); then
+        echo "${C_DIM}Log:${C_RESET} ${LOG_FILE}" | tee -a "${LOG_FILE}"
+      else
+        echo "${C_DIM}Log:${C_RESET} (disabled; re-run with --log [file])" | tee -a "${LOG_FILE}"
       fi
     done
   else

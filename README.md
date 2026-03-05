@@ -118,6 +118,9 @@ see `./build_gfx1031.sh --help`
 - `./build_gfx1031.sh configure` uses the defaults from `config_gfx1031.yaml`:
   - it configures **Stage‑1 first** (toolchain stage) using the enabled `features.*` set from the YAML
   - if the Stage‑1 toolchain is already built, it also configures **Stage‑2**
+- `build_gfx1031.sh` keeps repo-local `.venv` dependencies in sync with `requirements.txt`
+  and pins CMake Python detection to `.venv/bin/python3` for reproducible sub-project
+  configure steps (no host-python package drift).
 - To make Stage‑2 the default, either run `./build_gfx1031.sh configure --stage2` (recommended) or change the YAML defaults to `build.stage: 2` and `build.build_dir: build-stage2`.
 - If you want to configure both stages in one go (still configure-only): `./build_gfx1031.sh configure --all`.
 
@@ -431,6 +434,8 @@ Sanity:
 ```
 
 Note for `gfx1031`: `hipSPARSELt` is typically not shipped in this custom profile.
+`hipBLASLt` is also disabled by default for this profile due reproducible runtime
+instability/segfaults on `gfx1031` in matrix workloads.
 The PyTorch helper now skips missing optional preload libs in `_rocm_init.py` (instead
 of failing import), while keeping required ROCm preloads and version checks.
 

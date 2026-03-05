@@ -177,10 +177,13 @@ PY
 }
 
 purge_bazel_local_config_rocm() {
-  # Force ROCm repo reconfiguration so stale TF_HIPBLASLT settings are not reused.
+  # Force Bazel repo reconfiguration so stale ROCm/Git metadata is not reused
+  # across branch switches (e.g. r2.20-rocm-enhanced -> christoph/gfx1031-buildfixes).
   bazelisk --output_user_root="${BAZEL_OUTPUT_USER_ROOT}" shutdown >/dev/null 2>&1 || true
   find "${BAZEL_OUTPUT_USER_ROOT}" -type d -path "*/external/local_config_rocm" -prune -exec rm -rf {} + 2>/dev/null || true
+  find "${BAZEL_OUTPUT_USER_ROOT}" -type d -path "*/external/local_config_git" -prune -exec rm -rf {} + 2>/dev/null || true
   rm -rf "${TF_SRC_DIR}/bazel-tensorflow/external/local_config_rocm" 2>/dev/null || true
+  rm -rf "${TF_SRC_DIR}/bazel-tensorflow/external/local_config_git" 2>/dev/null || true
 }
 
 force_disable_generated_rocm_hipblaslt() {

@@ -16,6 +16,13 @@ def _latest_wheel(wheel_dir: Path) -> Path | None:
     return wheels[0] if wheels else None
 
 
+def _resolve_repo_path(repo_root: Path, value: str | os.PathLike[str]) -> str:
+    p = Path(value)
+    if not p.is_absolute():
+        p = repo_root / p
+    return str(p)
+
+
 def step_tensorflow_rocm_wheel(
     ctx: Context,
     cfg: dict[str, Any],
@@ -54,11 +61,11 @@ def step_tensorflow_rocm_wheel(
     step_env["TF_REF"] = str(wl.get("ref", "v2.20.0"))
     step_env["JOBS"] = str(wl.get("jobs", os.cpu_count() or 1))
     if wl.get("rocm_path"):
-        step_env["ROCM_PATH"] = str(wl.get("rocm_path"))
+        step_env["ROCM_PATH"] = _resolve_repo_path(repo_root, str(wl.get("rocm_path")))
     if wl.get("work_root"):
-        step_env["WORK_ROOT"] = str(wl.get("work_root"))
+        step_env["WORK_ROOT"] = _resolve_repo_path(repo_root, str(wl.get("work_root")))
     if wl.get("wheel_out_dir"):
-        step_env["WHEEL_OUT_DIR"] = str(wl.get("wheel_out_dir"))
+        step_env["WHEEL_OUT_DIR"] = _resolve_repo_path(repo_root, str(wl.get("wheel_out_dir")))
     step_env["DO_UPDATE"] = "1" if bool(wl.get("do_update", True)) else "0"
 
     timeout_s = int(cfg.get("timeouts_s", {}).get("tensorflow_build", 43200))
@@ -73,11 +80,14 @@ def step_tensorflow_rocm_wheel(
         )
 
     wheel_out_dir = Path(
-        str(
-            wl.get(
-                "wheel_out_dir",
-                repo_root / "validation" / "workspace" / "cache" / "wheels" / "tensorflow_rocm_custom",
-            )
+        _resolve_repo_path(
+            repo_root,
+            str(
+                wl.get(
+                    "wheel_out_dir",
+                    repo_root / "validation" / "workspace" / "cache" / "wheels" / "tensorflow_rocm_custom",
+                )
+            ),
         )
     )
     wheel = _latest_wheel(wheel_out_dir)

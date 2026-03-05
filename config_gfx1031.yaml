@@ -51,8 +51,10 @@ features:
   enable_fft: true
   enable_sparse: true
   enable_solver: true
-  # Needed for building PyTorch with ROCm support (PyTorch's CMake requires it).
-  enable_hipblaslt: true
+  # gfx1031: hipBLASLt is currently unstable (runtime segfaults in matmul/init paths).
+  # Keep OFF by default for stable ROCm builds on RX 6700 XT.
+  # If a workflow explicitly requires it, enable only for that dedicated build.
+  enable_hipblaslt: false
   enable_hipsparselt: false
   enable_miopen: true
   enable_hipdnn: true

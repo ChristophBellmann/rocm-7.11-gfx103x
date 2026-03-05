@@ -141,18 +141,20 @@ workloads:
     repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"
     ref: "christoph/gfx1031-buildfixes"
     jobs: 24
-    rocm_path: "/opt/rocm"
+    rocm_path: "build-stage2/dist/rocm"
     work_root: "validation/workspace/builds/tensorflow_rocm"
     wheel_out_dir: "validation/workspace/cache/wheels/tensorflow_rocm_custom"
     do_update: true
     # Functional GPU matmul benchmark settings.
-    use_in_tree_rocm: false
+    use_in_tree_rocm: true
+    disable_hipblaslt: 1
+    use_hipblaslt: 0
     disable_hipblaslt_init: 1
     hsa_override_gfx_version: ""
     matmul_mnk: 4096
     min_bench_s: 5.0
     dtype: "float16"
-    require_rocm_prefix: ""
+    require_rocm_prefix: "in-tree"
 
 steps:
   rocm_sanity: true

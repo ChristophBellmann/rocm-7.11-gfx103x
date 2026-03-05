@@ -141,16 +141,42 @@ require_cmd() {
 }
 
 ensure_venv() {
+  local req_hash marker_file current_hash needs_sync=0
   if [[ ! -f "${ROOT}/.venv/bin/activate" ]]; then
     echo "Creating .venv (python3 -m venv .venv && pip install -r requirements.txt)..." | tee -a "${LOG_FILE}"
     python3 -m venv "${ROOT}/.venv"
-    # shellcheck disable=SC1091
-    source "${ROOT}/.venv/bin/activate"
+    needs_sync=1
+  fi
+
+  # shellcheck disable=SC1091
+  source "${ROOT}/.venv/bin/activate"
+
+  marker_file="${ROOT}/.venv/.requirements.sha256"
+  req_hash="$(sha256sum "${ROOT}/requirements.txt" | awk '{print $1}')"
+  if [[ -f "${marker_file}" ]]; then
+    current_hash="$(<"${marker_file}")"
+  else
+    current_hash=""
+  fi
+  if [[ "${current_hash}" != "${req_hash}" ]]; then
+    needs_sync=1
+  fi
+
+  # Guard against manual package removal/corruption while requirements hash stays unchanged.
+  if ! python3 - <<'PY' >/dev/null 2>&1
+import importlib
+importlib.import_module("yaml")
+importlib.import_module("CppHeaderParser")
+PY
+  then
+    needs_sync=1
+  fi
+
+  if (( needs_sync )); then
+    echo "Syncing .venv requirements from requirements.txt..." | tee -a "${LOG_FILE}"
     pip install --upgrade pip
     pip install -r "${ROOT}/requirements.txt"
-  else
-    # shellcheck disable=SC1091
-    source "${ROOT}/.venv/bin/activate"
+    printf '%s\n' "${req_hash}" > "${marker_file}"
   fi
 }
 
@@ -821,6 +847,11 @@ configure_top() {
     "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
     "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
   )
+  local venv_python="${ROOT}/.venv/bin/python3"
+  if [[ -x "${venv_python}" ]]; then
+    cmake_args+=("-DPython3_EXECUTABLE:FILEPATH=${venv_python}")
+    cmake_args+=("-DPYTHON_EXECUTABLE:FILEPATH=${venv_python}")
+  fi
   if [[ -n "${linker}" ]]; then cmake_args+=("-DCMAKE_LINKER:FILEPATH=${linker}"); fi
   if [[ -x "${ar}" ]]; then cmake_args+=("-DCMAKE_AR:FILEPATH=${ar}"); fi
   if [[ -x "${ranlib}" ]]; then cmake_args+=("-DCMAKE_RANLIB:FILEPATH=${ranlib}"); fi
