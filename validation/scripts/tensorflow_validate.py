@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 from _bootstrap import reexec_in_venv, repo_root, validation_root
-from _doctor_utils import find_result, last_run_dir, read_report_json
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -37,40 +36,69 @@ def main(argv: list[str] | None = None) -> int:
     if str(src) not in sys.path:
         sys.path.insert(0, str(src))
     os.chdir(repo_root())
-    from cli.main import main as cli_main  # noqa: E402
 
-    rc = cli_main(["validate"] + validate_args)
+    from core.config import load_config  # noqa: E402
+    from core.context import Context  # noqa: E402
+    from core.reporting.summary import print_summary  # noqa: E402
+    from steps.plan import build_plan, run_plan  # noqa: E402
 
-    run_dir = last_run_dir()
-    if run_dir is None:
+    cfg = load_config(profile="tensorflow")
+    if args.build_dirs:
+        cfg["run"]["build_dirs"] = [x.strip() for x in args.build_dirs.split(",") if x.strip()]
+    if args.no_downloads or os.environ.get("ROCM_VALIDATION_NO_DOWNLOADS", "") == "1":
+        cfg["run"]["downloads_enabled"] = False
+        cfg["run"]["ask_before_downloads"] = False
+    cfg["run"]["power_monitor"] = False
+
+    ctx = Context.from_repo(cfg=cfg, enable_logs=bool(args.log))
+    plan = build_plan(cfg)
+    results = run_plan(ctx, cfg, plan)
+    print_summary(ctx, results)
+    rc = 0 if all(r.status != "FAIL" for r in results) else 1
+
+    wheel_res = next((r for r in results if "TensorFlow (ROCm) wheel build" in r.name), None)
+    func_res = next((r for r in results if "TensorFlow matmul (GPU)" in r.name), None)
+    if wheel_res is None and func_res is None:
         return rc
-    report = read_report_json(run_dir)
-    if report is None:
-        return rc
 
-    res = find_result(report, name_contains="TensorFlow (ROCm)")
-    if res is None:
-        return rc
+    primary = func_res or wheel_res
+    build_dir = primary.build_dir if primary is not None else ""
 
-    status = str(res.get("status", ""))
-    metric = str(res.get("metric", "")).strip()
-    build_dir = str(res.get("build_dir", ""))
+    wheel_status = wheel_res.status if wheel_res else ""
+    wheel_metric = (wheel_res.metric or "").strip() if wheel_res else ""
+    func_status = func_res.status if func_res else ""
+    func_metric = (func_res.metric or "").strip() if func_res else ""
+
+    if func_status == "OK" and wheel_status in {"", "OK", "SKIP"}:
+        overall_status = "OK"
+    elif func_status == "FAIL" or wheel_status == "FAIL":
+        overall_status = "FAIL"
+    elif func_status:
+        overall_status = func_status
+    else:
+        overall_status = wheel_status
 
     print("")
     print("==== tensorflow validation ====")
-    print(f"run_dir : {run_dir}")
+    print(f"run_dir : {ctx.run_root}")
     print(f"build   : {build_dir}")
     print("profile : tensorflow")
-    print(f"status  : {status}")
-    if metric:
-        print(f"metric  : {metric}")
+    print(f"overall : {overall_status}")
+    if wheel_res is not None:
+        print(f"wheel   : {wheel_status}")
+        if wheel_metric:
+            print(f"wheel_m : {wheel_metric}")
+    if func_res is not None:
+        print(f"load    : {func_status}")
+        if func_metric:
+            print(f"load_m  : {func_metric}")
 
-    if status != "OK":
+    if overall_status != "OK":
         print("")
         print("next steps:")
         print("- Re-run with logs: `python3 validation/scripts/tensorflow_validate.py --log`")
         print("- Monitor systemd build: `validation/scripts/tensorflow_rocm/monitor_tensorflow_rocm_build.sh --once`")
-        print("- Check TensorFlow live log: `tail -n 200 validation/workspace/builds/tensorflow_rocm/tf_build_live.log`")
+        print("- Check TensorFlow build log: `tail -n 200 validation/workspace/builds/tensorflow_rocm/build_start.log`")
 
     return rc
 

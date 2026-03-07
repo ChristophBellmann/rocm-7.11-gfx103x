@@ -211,6 +211,8 @@ the custom ROCm stack produced by this repository.
 - Default source config:
   - `workloads.tensorflow.repo_url`: `https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git`
   - `workloads.tensorflow.ref`: `christoph/gfx1031-buildfixes`
+- Wheel runtime fix:
+  - the build helper postprocesses the produced TensorFlow wheel and renames TensorFlow-bundled LLVM dynamic symbols across the wheel DSOs. This prevents ROCm COMGR / HIP from binding against TensorFlow's private LLVM copy at runtime when validating against the in-tree ROCm build.
 - Validation profile `tensorflow` also runs a post-build TensorFlow GPU matmul benchmark and reports `tflops_est` plus the computed operation (`C=A*B` dense matmul).
 
 Cache note: Validation TensorFlow uses `validation/workspace/cache/ccache/` (separate from repo `.ccache/`).

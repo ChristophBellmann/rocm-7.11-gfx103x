@@ -7,12 +7,22 @@ TF_SRC_DIR="${TF_SRC_DIR:-${WORK_ROOT}/tensorflow}"
 SYSLIBS_DIR="${SYSLIBS_DIR:-${WORK_ROOT}/syslibs}"
 VENV_DIR="${VENV_DIR:-${WORK_ROOT}/.venv}"
 PYTHON_BIN="${PYTHON_BIN:-}"
-DEFAULT_ROCM_PATH="${ROOT}/build-stage2/dist/rocm"
+IN_TREE_ROCM_PATH="${ROOT}/build-stage2/dist/rocm"
+DEFAULT_ROCM_PATH="${IN_TREE_ROCM_PATH}"
 if [[ ! -d "${DEFAULT_ROCM_PATH}" ]]; then
   DEFAULT_ROCM_PATH="/opt/rocm"
 fi
-ROCM_PATH="${ROCM_PATH:-${DEFAULT_ROCM_PATH}}"
+REQUESTED_ROCM_PATH="${ROCM_PATH:-}"
+TF_USE_SYSTEM_ROCM="${TF_USE_SYSTEM_ROCM:-0}"
+ROCM_PATH="${REQUESTED_ROCM_PATH:-${DEFAULT_ROCM_PATH}}"
+if [[ -d "${IN_TREE_ROCM_PATH}" ]]; then
+  if [[ -z "${REQUESTED_ROCM_PATH}" ]] || \
+     [[ "${REQUESTED_ROCM_PATH}" == /opt/rocm* && "${TF_USE_SYSTEM_ROCM}" != "1" ]]; then
+    ROCM_PATH="${IN_TREE_ROCM_PATH}"
+  fi
+fi
 JOBS="${JOBS:-$(nproc)}"
+TF_ENABLE_XLA="${TF_ENABLE_XLA:-1}"
 TF_REPO_URL="${TF_REPO_URL:-https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git}"
 TF_REF="${TF_REF:-christoph/gfx1031-buildfixes}"
 BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-${WORK_ROOT}/bin}"
@@ -63,6 +73,14 @@ if [[ -z "${PYTHON_BIN}" ]]; then
   PYTHON_BIN="${VENV_DIR}/bin/python"
 elif [[ "${PYTHON_BIN}" != /* ]]; then
   PYTHON_BIN="${ROOT}/${PYTHON_BIN}"
+fi
+if [[ ! -d "${ROCM_PATH}" ]]; then
+  echo "ERROR: ROCM_PATH does not exist: ${ROCM_PATH}" >&2
+  exit 1
+fi
+echo "Using ROCM_PATH=${ROCM_PATH}"
+if [[ -n "${REQUESTED_ROCM_PATH}" && "${REQUESTED_ROCM_PATH}" != "${ROCM_PATH}" ]]; then
+  echo "Overriding inherited ROCM_PATH=${REQUESTED_ROCM_PATH} in favor of ${ROCM_PATH}"
 fi
 
 mkdir -p "${WORK_ROOT}" "${BAZEL_BIN_DIR}" "${WHEEL_OUT_DIR}" \
@@ -180,6 +198,114 @@ if added:
 PY
 }
 
+rewrite_tf_configure_bazelrc_rocm_env() {
+  local bazelrc="${TF_SRC_DIR}/.tf_configure.bazelrc"
+  if [[ ! -f "${bazelrc}" ]]; then
+    return 0
+  fi
+
+  "${PYTHON_BIN}" - "${bazelrc}" "${ROCM_PATH}" <<'PY'
+import pathlib
+import sys
+
+p = pathlib.Path(sys.argv[1])
+rocm_path = pathlib.Path(sys.argv[2]).resolve()
+ld_library_path = f"{rocm_path}/lib:{rocm_path}/lib64:"
+lines = p.read_text(encoding="utf-8").splitlines()
+out = []
+seen_rocm = False
+seen_ld = False
+
+for line in lines:
+    if line.startswith('build --action_env ROCM_PATH='):
+        out.append(f'build --action_env ROCM_PATH="{rocm_path}"')
+        seen_rocm = True
+        continue
+    if line.startswith('build --action_env LD_LIBRARY_PATH='):
+        out.append(f'build --action_env LD_LIBRARY_PATH="{ld_library_path}"')
+        seen_ld = True
+        continue
+    out.append(line)
+
+if not seen_rocm:
+    out.append(f'build --action_env ROCM_PATH="{rocm_path}"')
+if not seen_ld:
+    out.append(f'build --action_env LD_LIBRARY_PATH="{ld_library_path}"')
+
+p.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+}
+
+postprocess_tensorflow_wheel_llvm_exports() {
+  local wheel_path="$1"
+  local tmp_root unpack_dir frame map_file out_dir
+
+  if [[ ! -f "${wheel_path}" ]]; then
+    echo "ERROR: Wheel for postprocess not found: ${wheel_path}" >&2
+    return 1
+  fi
+  if ! command -v patchelf >/dev/null 2>&1; then
+    echo "ERROR: patchelf is required for TensorFlow wheel postprocessing." >&2
+    return 1
+  fi
+
+  tmp_root="$(mktemp -d)"
+  out_dir="$(dirname "${wheel_path}")"
+  "${PYTHON_BIN}" -m wheel unpack --dest "${tmp_root}" "${wheel_path}" >/dev/null
+  unpack_dir="$(find "${tmp_root}" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+  if [[ -z "${unpack_dir}" ]]; then
+    echo "ERROR: Failed to unpack wheel ${wheel_path}" >&2
+    rm -rf "${tmp_root}"
+    return 1
+  fi
+
+  frame="${unpack_dir}/tensorflow/libtensorflow_framework.so.2"
+  if [[ ! -f "${frame}" ]]; then
+    echo "ERROR: Missing libtensorflow_framework.so.2 in unpacked wheel ${wheel_path}" >&2
+    rm -rf "${tmp_root}"
+    return 1
+  fi
+
+  map_file="${tmp_root}/tf_llvm_fullrename.map"
+  nm -D --defined-only "${frame}" \
+    | awk '$3 ~ /^_Z(NK?4llvm|TIN4llvm|TSN4llvm|TVN4llvm)/ {print $3}' \
+    | sort -u \
+    | awk '{printf "%s __tfllvm_%05d\n", $1, NR}' > "${map_file}"
+
+  if [[ ! -s "${map_file}" ]]; then
+    echo "No TensorFlow LLVM dynamic exports found in ${wheel_path}; skipping postprocess."
+    rm -rf "${tmp_root}"
+    return 0
+  fi
+
+  echo "Renaming TensorFlow LLVM dynamic symbols in wheel: ${wheel_path}"
+  echo "  map entries: $(wc -l < "${map_file}")"
+  while IFS= read -r -d '' so_file; do
+    patchelf --rename-dynamic-symbols "${map_file}" "${so_file}"
+  done < <(find "${unpack_dir}/tensorflow" -type f -name '*.so*' -print0)
+
+  local remaining_old remaining_new
+  remaining_old="$(
+    nm -D --defined-only "${frame}" \
+      | awk '$3 ~ /^_Z(NK?4llvm|TIN4llvm|TSN4llvm|TVN4llvm)/ {n++} END{print n+0}'
+  )"
+  remaining_new="$(
+    nm -D --defined-only "${frame}" \
+      | awk '$3 ~ /^__tfllvm_/ {n++} END{print n+0}'
+  )"
+  echo "  framework old llvm exports after rename: ${remaining_old}"
+  echo "  framework renamed llvm exports after rename: ${remaining_new}"
+  if [[ "${remaining_old}" != "0" ]]; then
+    echo "ERROR: TensorFlow wheel postprocess left old LLVM exports in ${frame}" >&2
+    rm -rf "${tmp_root}"
+    return 1
+  fi
+
+  rm -f "${wheel_path}"
+  "${PYTHON_BIN}" -m wheel pack --dest-dir "${out_dir}" "${unpack_dir}" >/dev/null
+  rm -rf "${tmp_root}"
+}
+
 purge_bazel_local_config_rocm() {
   # Force Bazel repo reconfiguration so stale ROCm/Git metadata is not reused
   # across branch switches (e.g. r2.20-rocm-enhanced -> christoph/gfx1031-buildfixes).
@@ -200,8 +326,10 @@ root = pathlib.Path(sys.argv[1])
 tf_src = pathlib.Path(sys.argv[2])
 patched = []
 
-files = list(root.glob("**/external/local_config_rocm/rocm/rocm_config/rocm_config.h"))
-files += list(root.glob("**/external/local_config_rocm/rocm/build_defs.bzl"))
+# Avoid recursive cache-wide scans; local_config_rocm lives directly under
+# output_user_root/<output_base>/external/.
+files = list(root.glob("*/external/local_config_rocm/rocm/rocm_config/rocm_config.h"))
+files += list(root.glob("*/external/local_config_rocm/rocm/build_defs.bzl"))
 files += [tf_src / "bazel-tensorflow" / "external" / "local_config_rocm" / "rocm" / "rocm_config" / "rocm_config.h"]
 files += [tf_src / "bazel-tensorflow" / "external" / "local_config_rocm" / "rocm" / "build_defs.bzl"]
 
@@ -422,13 +550,41 @@ p.write_text(s, encoding="utf-8")
 PY
   fi
 
+  # TensorFlow links its own LLVM copy into libtensorflow_framework.so. A few
+  # utility symbols (Twine/localCache/CallbackVH) also exist in ROCm COMGR's
+  # required libLLVM.so and can be interposed incorrectly at runtime. Keep
+  # these symbols local so COMGR resolves them from ROCm LLVM instead.
+  "${PYTHON_BIN}" - <<'PY' "${TF_SRC_DIR}"
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+p = root / "tensorflow" / "tf_framework_version_script.lds"
+s = p.read_text(encoding="utf-8")
+
+symbols = [
+    "_ZN4llvm10CallbackVH6anchorEv;",
+    "_ZN4llvm10localCacheERKNS_5TwineES2_S2_St8functionIFvjS2_St10unique_ptrINS_12MemoryBufferESt14default_deleteIS5_EEEE;",
+    "_ZNK4llvm5Twine13printOneChildERNS_11raw_ostreamENS0_5ChildENS0_8NodeKindE;",
+    "_ZNK4llvm5Twine5printERNS_11raw_ostreamE;",
+]
+
+if symbols[-1] not in s:
+    marker = "  local:\n"
+    insert = "".join(f"    {sym}\n" for sym in symbols)
+    if marker not in s:
+        raise SystemExit(f"expected marker not found in {p}")
+    s = s.replace(marker, marker + insert, 1)
+    p.write_text(s, encoding="utf-8")
+PY
+
   export TF_NEED_ROCM=1
   export TF_NEED_CUDA=0
   export TF_NEED_TENSORRT=0
   export TF_NEED_CLANG=0
   export TF_ROCM_CLANG=1
   export CLANG_COMPILER_PATH="${CCACHE_CLANG_WRAPPER}"
-  export TF_ENABLE_XLA=1
+  export TF_ENABLE_XLA
   export TF_ROCM_AMDGPU_TARGETS="gfx1031"
   export ROCM_PATH
   export HIP_DEVICE_LIB_PATH="${ROCM_PATH}/lib/llvm/amdgcn/bitcode"
@@ -449,6 +605,7 @@ PY
     echo "TensorFlow configure failed with exit code ${cfg_rc}"
     exit "${cfg_rc}"
   fi
+  rewrite_tf_configure_bazelrc_rocm_env
   patch_rocm_crosstool_builtin_includes
   force_disable_generated_rocm_hipblaslt
 
@@ -487,6 +644,17 @@ PY
     mkdir -p "${WHEEL_OUT_DIR}"
     cp -f "${wheels[@]}" "${WHEEL_OUT_DIR}/"
   fi
+
+  shopt -s nullglob
+  produced_wheels=( "${WHEEL_OUT_DIR}"/tensorflow-*.whl )
+  shopt -u nullglob
+  if [[ "${#produced_wheels[@]}" -eq 0 ]]; then
+    echo "ERROR: No TensorFlow wheel available for postprocess in ${WHEEL_OUT_DIR}" >&2
+    exit 1
+  fi
+  for wheel_path in "${produced_wheels[@]}"; do
+    postprocess_tensorflow_wheel_llvm_exports "${wheel_path}"
+  done
 
   echo "Done. Wheel(s):"
   ls -lh "${WHEEL_OUT_DIR}"/*.whl

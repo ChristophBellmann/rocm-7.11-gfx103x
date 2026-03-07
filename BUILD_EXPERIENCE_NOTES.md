@@ -25,6 +25,20 @@
      - `/lib/llvm/lib/clang/22/include`
    - This keeps the TensorFlow ROCm build path deterministic for this local compiler stack.
 
+0b. **2026-03-07: TensorFlow ROCm runtime fix for ROCm LLVM / COMGR symbol collisions**
+   - A freshly built TensorFlow ROCm wheel still crashed on the first GPU op even with hipBLASLt init disabled.
+   - Native backtraces showed ROCm COMGR / HIP resolving into TensorFlow's bundled LLVM symbols from `libtensorflow_framework.so.2` (`llvm::Twine`, `llvm::compression`, `llvm::localCache`) instead of ROCm's own `libLLVM.so`.
+   - The durable fix is now in `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh`:
+     - prefer the in-tree ROCm dist by default,
+     - rewrite `.tf_configure.bazelrc` to pin `ROCM_PATH` and `LD_LIBRARY_PATH` to that in-tree dist,
+     - postprocess the produced wheel with `patchelf --rename-dynamic-symbols` so TensorFlow's dynamic LLVM exports are renamed across the wheel DSOs and cannot interpose on ROCm COMGR anymore.
+   - Functional validation is green again against the in-tree ROCm build:
+     - run: `validation/workspace/runs/2026-03-07_161741`
+     - TensorFlow matmul: `C = A * B` dense GEMM, `m=n=k=4096`, `dtype=float16`
+     - measured `tflops_est = 21.50`
+     - loaded HIP runtime: `build-stage2/dist/rocm/lib/libamdhip64.so.7.2.53150-1cedb43795`
+   - hipBLASLt remains disabled for this gfx1031 profile (`TF_ROCM_DISABLE_HIPBLASLT=1`, `TF_ROCM_USE_HIPBLASLT=0`, `TF_ROCM_DISABLE_HIPBLASLT_INIT=1`).
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
