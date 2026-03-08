@@ -213,6 +213,12 @@ the custom ROCm stack produced by this repository.
   - functional runtime venv: `validation/workspace/envs/tensorflow_rocm/`
 - Typical promote target:
   - `/opt/rocm/wheels/tensorflow_rocm_custom/`
+- Promote helper behavior:
+  - `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`
+  - backs up the current destination directory under:
+    - `build-stage2/install-backups/<timestamp>/tensorflow_wheels/`
+  - and also preserves an existing target wheel as:
+    - `/opt/rocm/wheels/tensorflow_rocm_custom/<wheel>.bak_<timestamp>`
 - Default source config:
   - `workloads.tensorflow.repo_url`: `https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git`
   - `workloads.tensorflow.ref`: `christoph/gfx1031-buildfixes`
@@ -222,6 +228,35 @@ the custom ROCm stack produced by this repository.
   - the post-build TensorFlow matmul step installs the wheel into `validation/workspace/envs/tensorflow_rocm/`, not the shared validation venv.
   - this prevents TensorFlow-specific dependency pins from mutating unrelated validation workloads.
 - Validation profile `tensorflow` also runs a post-build TensorFlow GPU matmul benchmark and reports `tflops_est` plus the computed operation (`C=A*B` dense matmul).
+- Important boundary:
+  - `validation/scripts/validate.py --profile tensorflow` remains an **in-tree ROCm** workflow.
+  - a system-installed `/opt/rocm` stack is smoke-tested separately after wheel promotion, not by changing the default validation contract.
+
+System smoke example after promotion:
+
+```bash
+python3 -m venv validation/workspace/envs/tensorflow_rocm_system
+
+export ROCM_PATH=/opt/rocm
+export HIP_PATH=/opt/rocm
+export HSA_PATH=/opt/rocm
+export PATH="$PWD/validation/workspace/envs/tensorflow_rocm_system/bin:/opt/rocm/bin:/opt/rocm/llvm/bin:$PATH"
+export LD_LIBRARY_PATH="/opt/rocm/lib:/opt/rocm/lib64:/opt/rocm/lib/host-math/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/llvm/lib:${LD_LIBRARY_PATH:-}"
+export TF_ROCM_DISABLE_HIPBLASLT=1
+export TF_ROCM_USE_HIPBLASLT=0
+export TF_ROCM_DISABLE_HIPBLASLT_INIT=1
+
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --force-reinstall 'numpy<2' 'protobuf<7' \
+  /opt/rocm/wheels/tensorflow_rocm_custom/tensorflow-2.20.0.dev0+selfbuilt-cp312-cp312-linux_x86_64.whl
+```
+
+Validated system smoke on **2026-03-08**:
+- runtime libs loaded from `/opt/rocm/lib`
+- op: `C = A * B` dense matmul
+- shape: `4096 x 4096 x 4096`
+- dtype: `fp16`
+- throughput: `21.61 TFLOPS`
 
 Cache note: Validation TensorFlow uses `validation/workspace/cache/ccache/` (separate from repo `.ccache/`).
 

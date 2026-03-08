@@ -5,11 +5,18 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SRC_DIR="${SRC_DIR:-${ROOT}/validation/workspace/cache/wheels/tensorflow_rocm_custom}"
 DEST_DIR="${DEST_DIR:-/opt/rocm/wheels/tensorflow_rocm_custom}"
 TS="$(date +%Y%m%d_%H%M%S)"
+BACKUP_ROOT="${BACKUP_ROOT:-${ROOT}/build-stage2/install-backups/${TS}/tensorflow_wheels}"
+
+if [[ "${EUID}" -eq 0 ]]; then
+  SUDO=()
+else
+  SUDO=(sudo)
+fi
 
 usage() {
   echo "Usage:"
-  echo "  $0 [path/to/tensorflow_rocm_custom-*.whl]"
-  echo "  $0 --restore [tensorflow_rocm_custom-*.whl]"
+  echo "  $0 [path/to/tensorflow-*.whl]"
+  echo "  $0 --restore [tensorflow-*.whl]"
 }
 
 find_latest_wheel() {
@@ -28,8 +35,8 @@ restore_latest_backup() {
   echo "Restoring backup:"
   echo "  from: ${latest}"
   echo "  to:   ${target}"
-  sudo cp -f "${latest}" "${target}"
-  sudo sha256sum "${target}"
+  "${SUDO[@]}" cp -f "${latest}" "${target}"
+  "${SUDO[@]}" sha256sum "${target}"
   ls -lh "${target}"
 }
 
@@ -68,21 +75,28 @@ DEST_WHEEL="${DEST_DIR}/$(basename "${SRC_WHEEL}")"
 
 echo "Source: ${SRC_WHEEL}"
 echo "Target: ${DEST_WHEEL}"
+echo "Backup root: ${BACKUP_ROOT}"
 
-sudo mkdir -p "${DEST_DIR}"
+"${SUDO[@]}" mkdir -p "${DEST_DIR}"
+mkdir -p "${BACKUP_ROOT}"
+
+if [[ -d "${DEST_DIR}" ]]; then
+  echo "Directory backup: ${BACKUP_ROOT}/$(basename "${DEST_DIR}")"
+  "${SUDO[@]}" rsync -a "${DEST_DIR}/" "${BACKUP_ROOT}/$(basename "${DEST_DIR}")/"
+fi
 
 if [[ -f "${DEST_WHEEL}" ]]; then
   BACKUP="${DEST_WHEEL}.bak_${TS}"
   echo "Backup: ${BACKUP}"
-  sudo cp -f "${DEST_WHEEL}" "${BACKUP}"
+  "${SUDO[@]}" cp -f "${DEST_WHEEL}" "${BACKUP}"
 fi
 
-sudo cp -f "${SRC_WHEEL}" "${DEST_WHEEL}"
+"${SUDO[@]}" cp -f "${SRC_WHEEL}" "${DEST_WHEEL}"
 
 echo
 echo "SHA256:"
 sha256sum "${SRC_WHEEL}"
-sudo sha256sum "${DEST_WHEEL}"
+"${SUDO[@]}" sha256sum "${DEST_WHEEL}"
 
 echo
 echo "Installed wheel:"

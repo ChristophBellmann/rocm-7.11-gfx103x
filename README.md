@@ -367,14 +367,70 @@ use `install_to_opt.sh` to mirror the Stage‑2 dist to `/opt/rocm`.
 ./install_to_opt.sh --build-dir build-stage2 --prefix /opt/rocm
 ```
 
-`install_to_opt.sh` also (best-effort) copies custom framework wheels (if present) to:
+If an older `/opt/rocm` already exists and you want a repo-local rollback point first,
+create a backup under `build-stage2/install-backups/` before mirroring:
+
+```bash
+TS="$(date +%Y-%m-%d_%H%M%S)"
+mkdir -p "build-stage2/install-backups/${TS}"
+rsync -a /opt/rocm/ "build-stage2/install-backups/${TS}/opt_rocm_backup/"
+cp -a /etc/ld.so.conf.d/rocm.conf "build-stage2/install-backups/${TS}/rocm.conf.bak" 2>/dev/null || true
+cp -a /etc/OpenCL/vendors/amdocl64.icd "build-stage2/install-backups/${TS}/amdocl64.icd.bak" 2>/dev/null || true
+```
+
+`install_to_opt.sh` also (best-effort) copies these custom framework wheels (if present) to:
 - `/opt/rocm/wheels/pytorch_rocm711/`
 - `/opt/rocm/wheels/onnxruntime_rocm711/`
-- `/opt/rocm/wheels/tensorflow_rocm_custom/` (via the TensorFlow install helper)
+
+TensorFlow wheel promotion is handled separately via:
+- `/opt/rocm/wheels/tensorflow_rocm_custom/` (using `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`)
 
 System integration files written during `/opt` install:
 - `/etc/ld.so.conf.d/rocm.conf`
 - `/etc/OpenCL/vendors/amdocl64.icd`
+
+### Promote the validated TensorFlow wheel to `/opt/rocm`
+
+After the in-tree TensorFlow build/validation succeeds, promote the wheel with:
+
+```bash
+sudo ./validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh \
+  ./validation/workspace/cache/wheels/tensorflow_rocm_custom/tensorflow-2.20.0.dev0+selfbuilt-cp312-cp312-linux_x86_64.whl
+```
+
+The helper keeps two rollback layers:
+- destination directory backup under `build-stage2/install-backups/<timestamp>/tensorflow_wheels/`
+- existing target wheel copied to `/opt/rocm/wheels/tensorflow_rocm_custom/*.bak_<timestamp>`
+
+### System TensorFlow smoke test (`/opt/rocm`)
+
+`validation/scripts/validate.py --profile tensorflow` stays an **in-tree** validation path by design.
+For the promoted system install, use a separate fresh venv and run the wheel directly against `/opt/rocm`:
+
+```bash
+python3 -m venv validation/workspace/envs/tensorflow_rocm_system
+
+export ROCM_PATH=/opt/rocm
+export HIP_PATH=/opt/rocm
+export HSA_PATH=/opt/rocm
+export PATH="$PWD/validation/workspace/envs/tensorflow_rocm_system/bin:/opt/rocm/bin:/opt/rocm/llvm/bin:$PATH"
+export LD_LIBRARY_PATH="/opt/rocm/lib:/opt/rocm/lib64:/opt/rocm/lib/host-math/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/llvm/lib:${LD_LIBRARY_PATH:-}"
+export TF_ROCM_DISABLE_HIPBLASLT=1
+export TF_ROCM_USE_HIPBLASLT=0
+export TF_ROCM_DISABLE_HIPBLASLT_INIT=1
+
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --force-reinstall 'numpy<2' 'protobuf<7' \
+  /opt/rocm/wheels/tensorflow_rocm_custom/tensorflow-2.20.0.dev0+selfbuilt-cp312-cp312-linux_x86_64.whl
+```
+
+Validated system smoke on **2026-03-08**:
+- TensorFlow: `2.20.0-dev0+selfbuilt`
+- Loaded ROCm runtime: `/opt/rocm/lib/libamdhip64.so.7.2.53150-1cedb43795`
+- Operation: `C = A * B` dense matmul
+- Shape: `4096 x 4096 x 4096`
+- Dtype: `fp16`
+- Throughput: `21.61 TFLOPS`
 
 ### Install the custom PyTorch (ROCm 7.11, built from source)
 
