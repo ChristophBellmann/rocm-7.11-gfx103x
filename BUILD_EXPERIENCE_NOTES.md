@@ -36,8 +36,26 @@
      - run: `validation/workspace/runs/2026-03-07_161741`
      - TensorFlow matmul: `C = A * B` dense GEMM, `m=n=k=4096`, `dtype=float16`
      - measured `tflops_est = 21.50`
-     - loaded HIP runtime: `build-stage2/dist/rocm/lib/libamdhip64.so.7.2.53150-1cedb43795`
+   - loaded HIP runtime: `build-stage2/dist/rocm/lib/libamdhip64.so.7.2.53150-1cedb43795`
    - hipBLASLt remains disabled for this gfx1031 profile (`TF_ROCM_DISABLE_HIPBLASLT=1`, `TF_ROCM_USE_HIPBLASLT=0`, `TF_ROCM_DISABLE_HIPBLASLT_INIT=1`).
+
+0c. **2026-03-08: TensorFlow wheel build logic moved into the TensorFlow fork**
+   - TheRock now treats TensorFlow as an external framework build again.
+   - `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh` is reduced to a thin integration wrapper:
+     - resolve/pin the ROCm dist to test against,
+     - clone/update the TensorFlow fork workspace,
+     - delegate the actual wheel build to the TensorFlow fork's own entrypoint.
+   - The TensorFlow fork now owns the wheel build logic under:
+     - `tools/gfx1031/build_rocm_wheel.sh`
+     - `tools/gfx1031/README.md`
+   - Resulting boundary:
+     - TheRock repo: custom ROCm build + ROCm validation + integration wrapper
+     - TensorFlow fork: TensorFlow source patches + TensorFlow wheel build logic
+
+0d. **2026-03-08: TensorFlow functional validation moved to a dedicated venv**
+   - The post-build TensorFlow matmul step no longer installs the wheel into the shared validation venv `validation/workspace/envs/py`.
+   - It now creates/uses `validation/workspace/envs/tensorflow_rocm/`.
+   - Reason: TensorFlow runtime pins (`numpy`, `protobuf`, `grpcio`, etc.) otherwise leak into unrelated validation workloads and create cross-profile package conflicts.
 
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.

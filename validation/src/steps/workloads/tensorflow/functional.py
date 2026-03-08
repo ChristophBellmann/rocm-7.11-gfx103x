@@ -25,6 +25,42 @@ def _resolve_repo_path(repo_root: Path, value: str | Path) -> Path:
     return p
 
 
+def _tensorflow_runtime_python(
+    ctx: Context,
+    wl: dict[str, Any],
+    env: dict[str, str],
+    log: Path | None,
+) -> tuple[Path | None, str | None]:
+    venv_dir = _resolve_repo_path(
+        ctx.repo_root,
+        str(
+            wl.get(
+                "runtime_venv_dir",
+                ctx.repo_root / "validation" / "workspace" / "envs" / "tensorflow_rocm",
+            )
+        ),
+    )
+    py = venv_dir / "bin" / "python"
+    if py.exists():
+        return py, None
+
+    create = run_cmd(ctx.repo_root, env, [sys.executable, "-m", "venv", str(venv_dir)], 600, log)
+    if create.rc != 0:
+        return None, f"venv create rc={create.rc}"
+
+    bootstrap = run_cmd(
+        ctx.repo_root,
+        env,
+        [str(py), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+        1800,
+        log,
+    )
+    if bootstrap.rc != 0:
+        return None, f"venv bootstrap rc={bootstrap.rc}"
+
+    return py, None
+
+
 def _matmul_script() -> str:
     return r"""
 import os
@@ -126,8 +162,16 @@ def step_tensorflow_matmul(
     if wheel is None:
         return StepResult(build_dir, "TensorFlow matmul (GPU)", "SKIP", "0ms", f"no wheel in {wheel_out_dir}")
 
-    # Keep TF ABI/deps stable in the validation venv.
-    pip_install = [sys.executable, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<7", str(wheel)]
+    tf_python, tf_python_err = _tensorflow_runtime_python(ctx, wl, run_env, log)
+    if tf_python is None:
+        return StepResult(build_dir, "TensorFlow matmul (GPU)", "FAIL", "0ms", tf_python_err or "tensorflow venv unavailable")
+
+    tf_venv_dir = str(tf_python.parent.parent)
+    run_env["VIRTUAL_ENV"] = tf_venv_dir
+    run_env["PATH"] = f"{tf_python.parent}:{run_env.get('PATH', '')}".rstrip(":")
+
+    # Keep TensorFlow runtime deps isolated from the shared validation venv.
+    pip_install = [str(tf_python), "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<7", str(wheel)]
     r_install = run_cmd(ctx.repo_root, run_env, pip_install, 1800, log)
     if r_install.rc != 0:
         return StepResult(build_dir, "TensorFlow matmul (GPU)", "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
@@ -152,7 +196,7 @@ def step_tensorflow_matmul(
 
     def run_one(sampler):
         t0 = time.monotonic()
-        r = run_cmd(ctx.repo_root, run_env, [sys.executable, "-u", "-X", "faulthandler", "-c", script], timeout_s, log)
+        r = run_cmd(ctx.repo_root, run_env, [str(tf_python), "-u", "-X", "faulthandler", "-c", script], timeout_s, log)
         wall_s = time.monotonic() - t0
         return r, wall_s, sampler
 

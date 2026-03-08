@@ -202,10 +202,15 @@ the custom ROCm stack produced by this repository.
   - `validation/scripts/tensorflow_rocm/start_tensorflow_rocm_build_systemd.sh`
   - `validation/scripts/tensorflow_rocm/monitor_tensorflow_rocm_build.sh`
   - `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`
+- Separation of concerns:
+  - `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh` is now only the TheRock integration wrapper.
+  - The actual TensorFlow wheel build logic lives in the TensorFlow fork itself under:
+    - `tools/gfx1031/build_rocm_wheel.sh`
 - Artifacts:
   - build workspace: `validation/workspace/builds/tensorflow_rocm/`
   - wheels: `validation/workspace/cache/wheels/tensorflow_rocm_custom/`
   - ccache (validation TensorFlow only): `validation/workspace/cache/ccache/`
+  - functional runtime venv: `validation/workspace/envs/tensorflow_rocm/`
 - Typical promote target:
   - `/opt/rocm/wheels/tensorflow_rocm_custom/`
 - Default source config:
@@ -213,6 +218,9 @@ the custom ROCm stack produced by this repository.
   - `workloads.tensorflow.ref`: `christoph/gfx1031-buildfixes`
 - Wheel runtime fix:
   - the build helper postprocesses the produced TensorFlow wheel and renames TensorFlow-bundled LLVM dynamic symbols across the wheel DSOs. This prevents ROCm COMGR / HIP from binding against TensorFlow's private LLVM copy at runtime when validating against the in-tree ROCm build.
+- Functional validation isolation:
+  - the post-build TensorFlow matmul step installs the wheel into `validation/workspace/envs/tensorflow_rocm/`, not the shared validation venv.
+  - this prevents TensorFlow-specific dependency pins from mutating unrelated validation workloads.
 - Validation profile `tensorflow` also runs a post-build TensorFlow GPU matmul benchmark and reports `tflops_est` plus the computed operation (`C=A*B` dense matmul).
 
 Cache note: Validation TensorFlow uses `validation/workspace/cache/ccache/` (separate from repo `.ccache/`).
