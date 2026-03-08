@@ -385,6 +385,9 @@ cp -a /etc/OpenCL/vendors/amdocl64.icd "build-stage2/install-backups/${TS}/amdoc
 TensorFlow wheel promotion is handled separately via:
 - `/opt/rocm/wheels/tensorflow_rocm_custom/` (using `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`)
 
+PyTorch wheel promotion can also be done separately via:
+- `/opt/rocm/wheels/pytorch_rocm711/` (using `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh`)
+
 System integration files written during `/opt` install:
 - `/etc/ld.so.conf.d/rocm.conf`
 - `/etc/OpenCL/vendors/amdocl64.icd`
@@ -401,6 +404,29 @@ sudo ./validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.s
 The helper keeps two rollback layers:
 - destination directory backup under `build-stage2/install-backups/<timestamp>/tensorflow_wheels/`
 - existing target wheel copied to `/opt/rocm/wheels/tensorflow_rocm_custom/*.bak_<timestamp>`
+
+### Promote the validated PyTorch wheel to `/opt/rocm`
+
+After the in-tree PyTorch source build succeeds, promote the wheel with:
+
+```bash
+sudo ./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh \
+  ./validation/workspace/cache/wheels/pytorch_rocm711/torch-*.whl
+```
+
+The helper validates the ROCm-critical runtime constraint before copying:
+- `libtorch_hip.so` has no `libhipblaslt` dependency
+
+It also reports whether `libtorch_cpu.so` declares `libomp` directly or expects
+the ROCm `libomp` runtime to be provided through the runtime environment
+(`LD_LIBRARY_PATH` / `LD_PRELOAD`).
+
+Current compatibility note:
+- this wheel is presently built against the NumPy 1.x ABI; use `numpy<2` in consuming venvs until the wheel is rebuilt for NumPy 2.x.
+
+It also keeps two rollback layers:
+- destination directory backup under `build-stage2/install-backups/<timestamp>/pytorch_wheels/`
+- existing target wheel copied to `/opt/rocm/wheels/pytorch_rocm711/*.bak_<timestamp>`
 
 ### System TensorFlow smoke test (`/opt/rocm`)
 

@@ -61,21 +61,11 @@ need_cmd() {
 }
 
 auto_find_wheel() {
-  local wdir
-  for wdir in \
-    "${ROCM_PREFIX}/wheels/pytorch_rocm711" \
-    "${ROOT}/validation/workspace/cache/wheels/pytorch_rocm711" \
-    "${ROOT}/validation/workspace/cache/git/pytorch_rocm711/dist"
-  do
-    [[ -d "${wdir}" ]] || continue
-    local w
-    w="$(ls -1t "${wdir}"/torch-*.whl 2>/dev/null | head -n 1 || true)"
-    if [[ -n "${w}" ]]; then
-      echo "${w}"
-      return 0
-    fi
-  done
-  return 1
+  ls -1t \
+    "${ROCM_PREFIX}/wheels/pytorch_rocm711"/torch-*.whl \
+    "${ROOT}/validation/workspace/cache/wheels/pytorch_rocm711"/torch-*.whl \
+    "${ROOT}/validation/workspace/cache/git/pytorch_rocm711/dist"/torch-*.whl \
+    2>/dev/null | head -n 1 || true
 }
 
 choose_rocm_prefix() {
@@ -168,7 +158,11 @@ if (( DO_SMOKE )); then
   export HIP_PATH="${HIP_PATH:-$ROCM_PATH}"
   export HSA_PATH="${HSA_PATH:-$ROCM_PATH}"
   export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:${PATH:-}"
-  export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/host-math/lib:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
+  export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/llvm/lib:$ROCM_PATH/lib/host-math/lib:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
+  if [[ -f "$ROCM_PATH/lib/llvm/lib/libomp.so" ]]; then
+    export LD_PRELOAD="$ROCM_PATH/lib/llvm/lib/libomp.so${LD_PRELOAD:+:${LD_PRELOAD}}"
+  fi
+  export USE_ROCM_HIPBLASLT="${USE_ROCM_HIPBLASLT:-0}"
   if [[ -z "${HIP_DEVICE_LIB_PATH:-}" ]]; then
     if [[ -d "$ROCM_PATH/lib/llvm/amdgcn/bitcode" ]]; then
       export HIP_DEVICE_LIB_PATH="$ROCM_PATH/lib/llvm/amdgcn/bitcode"

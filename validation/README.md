@@ -154,6 +154,18 @@ the custom ROCm stack produced by this repository.
   - `validation/workspace/cache/wheels/pytorch_rocm711/` (or configured wheel dir)
 - Typical promote target:
   - `/opt/rocm/wheels/pytorch_rocm711/`
+- Promote helper:
+  - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh`
+  - validates:
+    - `libtorch_hip.so` does not depend on `libhipblaslt`
+  - reports:
+    - whether `libtorch_cpu.so` declares `libomp` directly or expects the ROCm `libomp` runtime via the runtime environment
+  - compatibility note:
+    - consuming venvs should currently pin `numpy<2` because the wheel is built against the NumPy 1.x ABI
+  - backs up the destination directory under:
+    - `build-stage2/install-backups/<timestamp>/pytorch_wheels/`
+  - and preserves an existing target wheel as:
+    - `/opt/rocm/wheels/pytorch_rocm711/<wheel>.bak_<timestamp>`
 
 ### ONNX Runtime (ROCm)
 

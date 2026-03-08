@@ -335,6 +335,7 @@ def _ensure_pytorch_source_build_in_tree(
 
     build_env.setdefault("USE_CUDA", "0")
     build_env.setdefault("USE_ROCM", "1")
+    build_env.setdefault("USE_ROCM_HIPBLASLT", "0")
     build_env.setdefault("USE_MPI", "0")
     build_env.setdefault("USE_NUMA", "0")
     build_env.setdefault("BUILD_TEST", "0")
