@@ -156,6 +156,14 @@ the custom ROCm stack produced by this repository.
   - `/opt/rocm/wheels/pytorch_rocm711/`
   - stable alias:
     - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
+    - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl` (optional companion wheel)
+- Companion torchcodec wheel:
+  - build helper:
+    - `validation/scripts/pytorch_rocm/build_torchcodec_rocm_wheel.sh`
+  - typical cached artifact:
+    - `validation/workspace/cache/wheels/pytorch_rocm711/torchcodec-*.whl`
+  - promote helper:
+    - `validation/scripts/pytorch_rocm/install_torchcodec_rocm_wheel_to_opt.sh`
 - Promote helper:
   - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh`
   - validates:
@@ -172,6 +180,9 @@ the custom ROCm stack produced by this repository.
   - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh`
   - default input wheel:
     - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
+  - automatically installs:
+    - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
+    - when that companion wheel is present
   - writes venv-local runtime wrappers:
     - `<venv>/bin/activate_rocm_pytorch.sh`
     - `<venv>/bin/python-rocm`

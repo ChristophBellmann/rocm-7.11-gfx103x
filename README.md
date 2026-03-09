@@ -389,6 +389,7 @@ PyTorch wheel promotion can also be done separately via:
 - `/opt/rocm/wheels/pytorch_rocm711/` (using `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh`)
 - stable alias maintained there:
   - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
+  - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl` (optional companion wheel)
 
 System integration files written during `/opt` install:
 - `/etc/ld.so.conf.d/rocm.conf`
@@ -432,6 +433,31 @@ It also keeps two rollback layers:
 
 After promotion, projects should consume the stable alias:
 - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
+- and, if present, the companion:
+  - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
+
+### Build and promote the matching torchcodec companion wheel
+
+`torchcodec` should not be bundled into the `torch` wheel itself. The stable pattern is:
+- promote `torch` to `/opt/rocm/wheels/pytorch_rocm711/`
+- build a matching `torchcodec` wheel against that exact custom torch ABI
+- promote `torchcodec` to the same directory
+
+Build the wheel in the validation cache:
+
+```bash
+./validation/scripts/pytorch_rocm/build_torchcodec_rocm_wheel.sh --rocm-prefix /opt/rocm
+```
+
+Promote it system-wide:
+
+```bash
+sudo ./validation/scripts/pytorch_rocm/install_torchcodec_rocm_wheel_to_opt.sh \
+  ./validation/workspace/cache/wheels/pytorch_rocm711/torchcodec-*.whl
+```
+
+Stable alias after promotion:
+- `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
 
 ### System TensorFlow smoke test (`/opt/rocm`)
 
@@ -471,6 +497,9 @@ install it into a project venv with:
 ```bash
 ./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh --rocm-prefix /opt/rocm
 ```
+
+The helper now also installs `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
+automatically when that companion wheel is present.
 
 If the wheel is missing, build it first:
 ```bash
@@ -547,6 +576,7 @@ python -m pip install 'numpy<2' -r requirements.txt
 
 The helper resolves `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl` to the real wheel file
 before calling pip, so projects do not need to hardcode the current wheel filename.
+If available, it also resolves and installs `torchcodec-current.whl`.
 It also writes:
 - `.venv/bin/activate_rocm_pytorch.sh`
 - `.venv/bin/python-rocm`

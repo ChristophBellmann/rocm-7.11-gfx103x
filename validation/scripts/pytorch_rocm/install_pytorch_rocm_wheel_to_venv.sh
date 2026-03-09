@@ -7,14 +7,17 @@ BUILD_DIR="${BUILD_DIR:-build-stage2}"
 ROCM_PREFIX="${ROCM_PREFIX:-/opt/rocm}"
 VENV_DIR="${VENV_DIR:-$HOME/.venvs/torch-rocm711}"
 WHEEL_PATH="${WHEEL_PATH:-}"
+TORCHCODEC_WHEEL_PATH="${TORCHCODEC_WHEEL_PATH:-}"
 ASSUME_YES=0
 DO_SMOKE=1
+INSTALL_TORCHCODEC=1
 
 usage() {
   cat <<'EOF'
 Usage: install_pytorch_rocm_wheel_to_venv.sh [options]
 
 Installs the promoted custom PyTorch wheel into a Python venv.
+If available, also installs the matching promoted torchcodec companion wheel.
 
 Default:
   - venv:   ~/.venvs/torch-rocm711
@@ -25,14 +28,18 @@ Default:
 Options:
   --venv <dir>        Venv dir (default: ~/.venvs/torch-rocm711)
   --wheel <path>      Torch wheel to install (default: auto-discover in validation cache)
+  --torchcodec-wheel <path>
+                      Companion torchcodec wheel to install (default: auto-discover next to torch wheel)
   --rocm-prefix <dir> ROCm prefix to use for the smoke test (default: /opt/rocm, fallback: in-tree dist)
   --build-dir <dir>   In-tree build dir for fallback ROCm prefix (default: build-stage2)
+  --no-torchcodec     Install only torch (skip companion torchcodec wheel)
   --no-smoke          Install only (skip GPU smoke test)
   -y, --yes           Do not prompt
   -h, --help          Show help
 
 Notes:
-  - This installs only 'torch'. If you need 'torchvision'/'torchaudio', add them separately.
+  - This installs 'torch' and, when present, the matching promoted 'torchcodec' wheel.
+  - If you need 'torchvision'/'torchaudio', add them separately.
   - Standard workflow in this repo is:
       1) promote the wheel to /opt/rocm/wheels/pytorch_rocm711/
       2) install from that promoted system location into project venvs
@@ -122,6 +129,17 @@ auto_find_wheel() {
     2>/dev/null | head -n 1 || true
 }
 
+auto_find_torchcodec_wheel() {
+  if [[ -f "${ROCM_PREFIX}/wheels/pytorch_rocm711/torchcodec-current.whl" ]]; then
+    echo "${ROCM_PREFIX}/wheels/pytorch_rocm711/torchcodec-current.whl"
+    return 0
+  fi
+  ls -1t \
+    "${ROCM_PREFIX}/wheels/pytorch_rocm711"/torchcodec-*.whl \
+    "${ROOT}/validation/workspace/cache/wheels/pytorch_rocm711"/torchcodec-*.whl \
+    2>/dev/null | head -n 1 || true
+}
+
 choose_rocm_prefix() {
   if [[ -d "${ROCM_PREFIX}" ]]; then
     echo "${ROCM_PREFIX}"
@@ -145,6 +163,10 @@ while [[ $# -gt 0 ]]; do
       WHEEL_PATH="${2:-}"
       shift 2
       ;;
+    --torchcodec-wheel)
+      TORCHCODEC_WHEEL_PATH="${2:-}"
+      shift 2
+      ;;
     --rocm-prefix)
       ROCM_PREFIX="${2:-}"
       shift 2
@@ -155,6 +177,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-smoke)
       DO_SMOKE=0
+      shift
+      ;;
+    --no-torchcodec)
+      INSTALL_TORCHCODEC=0
       shift
       ;;
     -y|--yes)
@@ -182,10 +208,25 @@ if [[ -L "${WHEEL_PATH}" ]]; then
   WHEEL_PATH="$(readlink -f "${WHEEL_PATH}")"
 fi
 
+if (( INSTALL_TORCHCODEC )) && [[ -z "${TORCHCODEC_WHEEL_PATH}" ]]; then
+  TORCHCODEC_WHEEL_PATH="$(auto_find_torchcodec_wheel || true)"
+fi
+if [[ -n "${TORCHCODEC_WHEEL_PATH}" && -L "${TORCHCODEC_WHEEL_PATH}" ]]; then
+  TORCHCODEC_WHEEL_PATH="$(readlink -f "${TORCHCODEC_WHEEL_PATH}")"
+fi
+if [[ -n "${TORCHCODEC_WHEEL_PATH}" && ! -f "${TORCHCODEC_WHEEL_PATH}" ]]; then
+  die "torchcodec wheel not found: ${TORCHCODEC_WHEEL_PATH}"
+fi
+
 rocm_use="$(choose_rocm_prefix)"
 
 echo "== PyTorch (ROCm 7.11) install =="
 echo "wheel   : ${WHEEL_PATH}"
+if (( INSTALL_TORCHCODEC )); then
+  echo "torchcodec: ${TORCHCODEC_WHEEL_PATH:-<not found; skipped>}"
+else
+  echo "torchcodec: <disabled>"
+fi
 echo "venv    : ${VENV_DIR}"
 echo "ROCm    : ${rocm_use}"
 echo ""
@@ -207,6 +248,11 @@ source "${VENV_DIR}/bin/activate"
 echo "==> pip install torch wheel"
 python -m pip install -U pip setuptools wheel >/dev/null
 python -m pip install --upgrade --force-reinstall "${WHEEL_PATH}"
+
+if (( INSTALL_TORCHCODEC )) && [[ -n "${TORCHCODEC_WHEEL_PATH}" ]]; then
+  echo "==> pip install torchcodec wheel"
+  python -m pip install --no-deps --upgrade --force-reinstall "${TORCHCODEC_WHEEL_PATH}"
+fi
 
 write_rocm_runtime_wrappers "${VENV_DIR}" "${rocm_use}"
 
@@ -230,6 +276,12 @@ if (( DO_SMOKE )); then
     fi
   fi
 
+  if (( INSTALL_TORCHCODEC )) && [[ -n "${TORCHCODEC_WHEEL_PATH}" ]]; then
+    export THEROCK_TORCHCODEC_EXPECTED=1
+  else
+    export THEROCK_TORCHCODEC_EXPECTED=0
+  fi
+
   python - <<'PY'
 import os, time
 import torch
@@ -237,6 +289,15 @@ import torch
 print(f"torch                 : {torch.__version__}")
 print(f"torch.version.rocm    : {torch.version.rocm}")
 print(f"torch.version.hip     : {torch.version.hip}")
+
+try:
+    import torchcodec
+    print(f"torchcodec            : {getattr(torchcodec, '__file__', 'unknown')}")
+except Exception as e:
+    if os.environ.get("THEROCK_TORCHCODEC_EXPECTED") == "1":
+        print(f"torchcodec            : import failed: {e!r}")
+        raise
+    print("torchcodec            : not installed")
 
 ok = torch.cuda.is_available()
 print(f"torch.cuda.is_available: {ok}")
