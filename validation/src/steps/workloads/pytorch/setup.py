@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+import glob
 
 from core.context import Context
 from core.reporting.models import StepResult
@@ -85,6 +86,31 @@ def _probe_torch(ctx: Context, env: dict[str, str], log: Path | None) -> tuple[i
     hip = lines[1].strip() if len(lines) >= 2 else ""
     rocm = lines[2].strip() if len(lines) >= 3 else ""
     return 0, ver, hip, rocm
+
+
+def _resolve_package_spec(spec: str) -> str:
+    marker = " @ file://"
+    if marker not in spec:
+        return spec
+    name, raw_path = spec.split(marker, 1)
+    path_text = raw_path.strip()
+    if not path_text:
+        return spec
+
+    resolved_path: str | None = None
+    if any(ch in path_text for ch in "*?[]"):
+        matches = [Path(p) for p in glob.glob(path_text)]
+        if matches:
+            matches.sort(key=lambda p: (p.stat().st_mtime, str(p)))
+            resolved_path = str(matches[-1].resolve())
+    else:
+        p = Path(path_text)
+        if p.exists():
+            resolved_path = str(p.resolve())
+
+    if not resolved_path:
+        return spec
+    return f"{name}{marker}{resolved_path}"
 
 
 def _run_logged(
@@ -549,6 +575,7 @@ def ensure_pytorch(
     packages = list(wl.get("packages", []) or [])
     if not packages:
         packages = ["torch", "torchvision"]
+    packages = [_resolve_package_spec(p) for p in packages]
 
     # `pip_install` doesn't support extra args; call pip directly for flexibility.
     extra_flags: list[str] = []

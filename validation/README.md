@@ -154,6 +154,8 @@ the custom ROCm stack produced by this repository.
   - `validation/workspace/cache/wheels/pytorch_rocm711/` (or configured wheel dir)
 - Typical promote target:
   - `/opt/rocm/wheels/pytorch_rocm711/`
+  - stable alias:
+    - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
 - Promote helper:
   - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh`
   - validates:
@@ -166,6 +168,13 @@ the custom ROCm stack produced by this repository.
     - `build-stage2/install-backups/<timestamp>/pytorch_wheels/`
   - and preserves an existing target wheel as:
     - `/opt/rocm/wheels/pytorch_rocm711/<wheel>.bak_<timestamp>`
+- Project venv consumer helper:
+  - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh`
+  - default input wheel:
+    - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
+  - writes venv-local runtime wrappers:
+    - `<venv>/bin/activate_rocm_pytorch.sh`
+    - `<venv>/bin/python-rocm`
 
 ### ONNX Runtime (ROCm)
 

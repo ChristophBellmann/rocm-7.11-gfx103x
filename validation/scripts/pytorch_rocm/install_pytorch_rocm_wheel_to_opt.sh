@@ -95,6 +95,7 @@ restore_latest_backup() {
   echo "  from: ${latest}"
   echo "  to:   ${target}"
   "${SUDO[@]}" cp -f "${latest}" "${target}"
+  "${SUDO[@]}" ln -sfn "${wheel_name}" "${DEST_DIR}/torch-current.whl"
   "${SUDO[@]}" sha256sum "${target}"
   ls -lh "${target}"
 }
@@ -153,6 +154,7 @@ if [[ -f "${DEST_WHEEL}" ]]; then
 fi
 
 "${SUDO[@]}" cp -f "${SRC_WHEEL}" "${DEST_WHEEL}"
+"${SUDO[@]}" ln -sfn "$(basename "${DEST_WHEEL}")" "${DEST_DIR}/torch-current.whl"
 
 echo
 echo "SHA256:"
@@ -162,3 +164,4 @@ sha256sum "${SRC_WHEEL}"
 echo
 echo "Installed wheel:"
 ls -lh "${DEST_WHEEL}"
+ls -lh "${DEST_DIR}/torch-current.whl"

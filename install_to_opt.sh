@@ -283,6 +283,7 @@ if (( DO_PYTORCH_WHEEL )); then
       ${SUDO} rsync -a --dry-run --info=stats2 "${PYTORCH_WHEEL}" "${wheel_dir}/"
     else
       ${SUDO} rsync -a --info=stats2 "${PYTORCH_WHEEL}" "${wheel_dir}/"
+      ${SUDO} ln -sfn "$(basename "${PYTORCH_WHEEL}")" "${wheel_dir}/torch-current.whl"
     fi
   else
     echo ""

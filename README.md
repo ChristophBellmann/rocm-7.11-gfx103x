@@ -102,7 +102,7 @@ wheel output locations and promote/install notes, are documented in:
   - `test_docker_gfx1031.sh` (host vs docker comparison)
   - `validation/` (Python “usability & workloads” validation)
   - `install_to_opt.sh` (optional: mirror dist to `/opt/rocm`)
-  - `install_pytorch_rocm711.sh` (optional: install custom PyTorch wheel to a venv)
+  - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh` (optional: promote custom PyTorch wheel to `/opt/rocm`)
 
 ## Configuration
 
@@ -387,6 +387,8 @@ TensorFlow wheel promotion is handled separately via:
 
 PyTorch wheel promotion can also be done separately via:
 - `/opt/rocm/wheels/pytorch_rocm711/` (using `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh`)
+- stable alias maintained there:
+  - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
 
 System integration files written during `/opt` install:
 - `/etc/ld.so.conf.d/rocm.conf`
@@ -428,6 +430,9 @@ It also keeps two rollback layers:
 - destination directory backup under `build-stage2/install-backups/<timestamp>/pytorch_wheels/`
 - existing target wheel copied to `/opt/rocm/wheels/pytorch_rocm711/*.bak_<timestamp>`
 
+After promotion, projects should consume the stable alias:
+- `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
+
 ### System TensorFlow smoke test (`/opt/rocm`)
 
 `validation/scripts/validate.py --profile tensorflow` stays an **in-tree** validation path by design.
@@ -458,19 +463,23 @@ Validated system smoke on **2026-03-08**:
 - Dtype: `fp16`
 - Throughput: `21.61 TFLOPS`
 
-### Install the custom PyTorch (ROCm 7.11, built from source)
+### Install the promoted PyTorch wheel into a project venv
 
-The validation suite can build a custom `torch` wheel against the in-tree ROCm 7.11 dist.
-To install that wheel into a user venv (recommended), use:
+After the system wheel has been promoted to `/opt/rocm/wheels/pytorch_rocm711/`,
+install it into a project venv with:
 
 ```bash
-./install_pytorch_rocm711.sh --rocm-prefix /opt/rocm
+./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh --rocm-prefix /opt/rocm
 ```
 
 If the wheel is missing, build it first:
 ```bash
 python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
 ```
+
+Compatibility wrapper:
+- `./install_pytorch_rocm711.sh`
+- this now only forwards to `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh`
 
 ### Build local ROCm Python packages (gfx1031) and local pip index
 
@@ -523,22 +532,26 @@ of failing import), while keeping required ROCm preloads and version checks.
 
 ### Using ROCm 7.11 PyTorch in new Python projects (recommended)
 
-To ensure you **always** use the custom ROCm 7.11 wheel (and never accidentally install a
-different ROCm/CUDA/CPU build), pin `torch` to the local wheel path in your project:
+To ensure you **always** use the promoted custom ROCm 7.11 wheel (and never accidentally install a
+different ROCm/CUDA/CPU build), install `torch` into the project venv via the helper:
 
-Example `requirements.txt`:
-```txt
-torch @ file:///opt/rocm/wheels/pytorch_rocm711/torch-2.11.0a0+devrocm20260301-cp312-cp312-linux_x86_64.whl
-numpy
-```
-
-Install:
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh \
+  --venv .venv \
+  --rocm-prefix /opt/rocm
+. .venv/bin/activate_rocm_pytorch.sh
 python -m pip install -U pip
-python -m pip install -r requirements.txt
+python -m pip install 'numpy<2' -r requirements.txt
 ```
+
+The helper resolves `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl` to the real wheel file
+before calling pip, so projects do not need to hardcode the current wheel filename.
+It also writes:
+- `.venv/bin/activate_rocm_pytorch.sh`
+- `.venv/bin/python-rocm`
+
+Those wrappers carry the required ROCm runtime environment (`LD_LIBRARY_PATH`, `LD_PRELOAD`, `ROCM_PATH`) for this custom wheel.
 
 GPU smoke:
 ```bash
