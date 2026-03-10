@@ -399,6 +399,8 @@ Uses bundled short WAV by default; can repeat audio to a target duration (`audio
 ### MFEM
 
 - Uses pinned MFEM ref from config.
+- Source checkout lives in `validation/workspace/cache/git/mfem/`.
+- Build artifacts live in `validation/workspace/builds/mfem_build/`.
 - Forces `-DHIP_PLATFORM=amd` to avoid empty HIP platform edge cases.
 - Builds `ex1` explicitly (many MFEM examples are not in default target).
 

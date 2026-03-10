@@ -27,7 +27,9 @@ def step_mfem_hip(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", "0ms", "MFEM source unavailable")
 
     t = int(cfg.get("timeouts_s", {}).get("mfem_hip", 3600))
-    bld = ctx.builds_dir() / "mfem"
+    # Keep MFEM source-of-truth in git cache and use a separate build dir.
+    # Older validation states used builds/mfem as a source+build tree, which was redundant.
+    bld = ctx.builds_dir() / "mfem_build"
     bld.mkdir(parents=True, exist_ok=True)
 
     hipcc = which("hipcc", env) or "hipcc"
