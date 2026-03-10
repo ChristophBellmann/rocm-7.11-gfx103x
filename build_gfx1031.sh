@@ -93,7 +93,7 @@ Quick start (fresh clone):
   ./build_gfx1031.sh configure
   ./build_gfx1031.sh build
   ./test_gfx1031.sh
-  python3 validation/scripts/validate.py
+  python3 validation/validate.py
 
 Shared options:
   --config <file>          Config file (default: ./config_gfx1031.yaml)
@@ -587,7 +587,7 @@ if [[ "${cmd}" == "build" && ${BUILD_ALL} -eq 1 ]]; then
 
   echo "Full build complete. Next:" | tee -a "${LOG_FILE}"
   echo "  ./test_gfx1031.sh --stage2" | tee -a "${LOG_FILE}"
-  echo "  python3 validation/scripts/validate.py" | tee -a "${LOG_FILE}"
+  echo "  python3 validation/validate.py" | tee -a "${LOG_FILE}"
   exit 0
 fi
 

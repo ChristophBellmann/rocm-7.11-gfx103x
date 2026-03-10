@@ -289,7 +289,7 @@ if (( DO_PYTORCH_WHEEL )); then
     echo ""
     echo "WARN: No custom torch wheel found. Skipping wheel copy."
     echo "      Build it via:"
-    echo "        python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs ${BUILD_DIR} --yes --power --log"
+    echo "        python3 validation/validate.py --profile pytorch_rocm711_source --build-dirs ${BUILD_DIR} --yes --power --log"
   fi
 fi
 
@@ -315,7 +315,7 @@ if (( DO_ONNXRUNTIME_WHEEL )); then
     echo ""
     echo "WARN: No custom ONNX Runtime ROCm wheel found. Skipping wheel copy."
     echo "      Build it via:"
-    echo "        python3 validation/scripts/onnxruntime_validate.py --log"
+    echo "        python3 validation/validate.py --profile onnxruntime --yes --log"
   fi
 fi
 

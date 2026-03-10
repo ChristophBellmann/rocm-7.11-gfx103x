@@ -208,7 +208,7 @@ It runs sustained GPU tests with optional power sampling.
 
 Start here:
 ```bash
-python3 validation/scripts/validate.py
+python3 validation/validate.py
 ```
 
 The validation scripts auto-create and manage a repo-local Python venv under `validation/workspace/` (no manual activation required).
@@ -230,8 +230,8 @@ Also note: `torch.version.hip` is the HIP toolchain version (e.g. 7.2.x), while 
 
 Examples:
 ```bash
-python3 validation/scripts/validate.py --profile quick --no-downloads
-python3 validation/scripts/validate.py --profile all --yes --power --log
+python3 validation/validate.py --profile quick --no-downloads
+python3 validation/validate.py --profile all --yes --power --log
 ```
 
 See `validation/README.md` for full details, configuration, and per-workload one-shot validators.
@@ -245,7 +245,7 @@ Example full regression run (with logs):
 ./test_docker_gfx1031.sh --build-dir build-stage2 --full --consistency --miopen --miopen-smoke --keep-logs
 
 # Full workload validation (writes validation/workspace/runs/<run_id>/logs/):
-python3 validation/scripts/validate.py --profile all --yes --power --summary-multiline --log
+python3 validation/validate.py --profile all --yes --power --summary-multiline --log
 ```
 
 ## Latest known-good run (example)
@@ -258,7 +258,7 @@ from `dW` (power delta) and `gpu%`.
 
 Command used:
 - `./test_gfx1031.sh --build-dir build-stage2 --consistency --miopen --miopen-smoke --bench --full --log test_gfx1031.stage2.full-2026-02-08.log`
-- `python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log`
+- `python3 validation/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log`
 
 Artifacts (local):
 - Host test log: `test_gfx1031.stage2.full-2026-02-08.log`
@@ -324,7 +324,7 @@ Where this is recorded:
 Commands used:
 - `./test_gfx1031.sh --build-dir build-stage2 --consistency --miopen --miopen-smoke --bench --full --log test_gfx1031.stage2.full.log`
 - `./test_docker_gfx1031.sh --build-dir build-stage2 --full --consistency --miopen --miopen-smoke --keep-logs`
-- `python3 validation/scripts/validate.py --profile all --yes --power --summary-multiline --log`
+- `python3 validation/validate.py --profile all --yes --power --summary-multiline --log`
 
 Artifacts:
 - Host test log: `test_gfx1031.stage2.full.log`
@@ -501,7 +501,7 @@ Stable alias after promotion:
 
 ### System TensorFlow smoke test (`/opt/rocm`)
 
-`validation/scripts/validate.py --profile tensorflow` stays an **in-tree** validation path by design.
+`validation/validate.py --profile tensorflow` stays an **in-tree** validation path by design.
 For the promoted system install, use a separate fresh venv and run the wheel directly against `/opt/rocm`:
 
 ```bash
@@ -547,7 +547,7 @@ To validate the promoted wheel family itself through the normal validation suite
 with perf and power metrics, run:
 
 ```bash
-python3 validation/scripts/validate.py --profile pytorch_rocm711_promoted --yes --power --log
+python3 validation/validate.py --profile pytorch_rocm711_promoted --yes --power --log
 ```
 
 This promoted profile is expected to load ROCm runtime libraries from
@@ -556,7 +556,7 @@ patches wheel RPATHs accordingly before installing the system copy.
 
 If the wheel is missing, build it first:
 ```bash
-python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
+python3 validation/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
 ```
 
 Compatibility wrapper:

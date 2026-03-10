@@ -15,52 +15,52 @@ Bundled sample inputs:
 
 Default run (`run.profile` from `validation/config/defaults.yaml`, currently `all`):
 ```bash
-python3 validation/scripts/validate.py
+python3 validation/validate.py
 ```
 
 Lightweight ROCm-only checks (no downloads):
 ```bash
-python3 validation/scripts/validate.py --profile quick --no-downloads
+python3 validation/validate.py --profile quick --no-downloads
 ```
 
 Non-interactive default run:
 ```bash
-python3 validation/scripts/validate.py --yes
+python3 validation/validate.py --yes
 ```
 
 Write per-step logs:
 ```bash
-python3 validation/scripts/validate.py --log
+python3 validation/validate.py --log
 ```
 
 ## Daily commands
 
 ### Main runner
 
-Primary interface: use `validation/scripts/validate.py --profile ...`.
+Primary interface: use `validation/validate.py --profile ...`.
 The workload-specific scripts under `validation/scripts/*_validate.py` are
 convenience wrappers for compact summaries, not the source of truth for
 workflow logic.
 
 - Default profile (`all`, comprehensive):
   ```bash
-  python3 validation/scripts/validate.py
+  python3 validation/validate.py
   ```
 - Explicit `all` profile:
   ```bash
-  python3 validation/scripts/validate.py --profile all
+  python3 validation/validate.py --profile all
   ```
 - Compat profile (`full`, mostly defaults, reduced scope vs `all`):
   ```bash
-  python3 validation/scripts/validate.py --profile full
+  python3 validation/validate.py --profile full
   ```
 - Quick profile:
   ```bash
-  python3 validation/scripts/validate.py --profile quick
+  python3 validation/validate.py --profile quick
   ```
 - Quick + hard no-downloads:
   ```bash
-  python3 validation/scripts/validate.py --profile quick --no-downloads
+  python3 validation/validate.py --profile quick --no-downloads
   ```
 
 ### Build-dir selection
@@ -72,27 +72,27 @@ Default build-dir priority:
 
 Commands:
 ```bash
-python3 validation/scripts/validate.py --build-dirs build-stage2
-python3 validation/scripts/validate.py --all-build-dirs
+python3 validation/validate.py --build-dirs build-stage2
+python3 validation/validate.py --all-build-dirs
 ```
 
 ### Output and monitoring options
 
 ```bash
-python3 validation/scripts/validate.py --power
-python3 validation/scripts/validate.py --no-power
-python3 validation/scripts/validate.py --summary-multiline
-python3 validation/scripts/validate.py --log
+python3 validation/validate.py --power
+python3 validation/validate.py --no-power
+python3 validation/validate.py --summary-multiline
+python3 validation/validate.py --log
 ```
 
 ### Utilities
 
 ```bash
-python3 validation/scripts/doctor.py
-python3 validation/scripts/cache_gc.py
-python3 validation/scripts/cache_gc.py --all
-python3 validation/scripts/report_open.py
-python3 validation/scripts/report_open.py --open
+python3 validation/doctor.py
+python3 validation/cache_gc.py
+python3 validation/cache_gc.py --all
+python3 validation/report_open.py
+python3 validation/report_open.py --open
 ```
 
 ## Profiles and what they mean
@@ -117,37 +117,36 @@ Focused profiles:
 
 Show CLI help:
 ```bash
-python3 validation/scripts/validate.py --help
+python3 validation/validate.py --help
 ```
 
-## Workload-focused one-shot commands
+## Targeted profile runs
 
-These are convenience wrappers around the main CLI. Prefer profiles when you
-want reproducible automation, CI integration, or a single consistent command
-surface.
+Use the root CLI directly. `validation/scripts/` is internal implementation,
+not the public command surface.
 
 ```bash
-python3 validation/scripts/llama_cpp_validate.py
-python3 validation/scripts/llama_cpp_validate.py --smoke
+python3 validation/validate.py --profile llama_cpp_infer --yes --power --log
+python3 validation/validate.py --profile llama_cpp_smoke --yes --power --log
 
-python3 validation/scripts/ollama_validate.py
-python3 validation/scripts/ollama_doctor.py --yes
+python3 validation/validate.py --profile ollama --yes --power --log
+python3 validation/validate.py --profile ollama_smoke --yes --power --log
 
-python3 validation/scripts/whisper_validate.py
-python3 validation/scripts/mfem_validate.py
-python3 validation/scripts/onnxruntime_validate.py
-python3 validation/scripts/tensorflow_validate.py
+python3 validation/validate.py --profile whisper --yes --power --log
+python3 validation/validate.py --profile mfem --yes --power --log
+python3 validation/validate.py --profile onnxruntime --yes --log
+python3 validation/validate.py --profile tensorflow --yes --log
 ```
 
 Additional targeted runs:
 ```bash
-python3 validation/scripts/validate.py --profile ollama --yes --power --log
-python3 validation/scripts/validate.py --profile petsc --yes --power --log
-python3 validation/scripts/validate.py --profile onnxruntime --yes --log
-python3 validation/scripts/validate.py --profile onnxruntime_in_tree --yes --power --log
-python3 validation/scripts/validate.py --profile onnxruntime_migraphx_build --yes --log
-python3 validation/scripts/validate.py --profile pytorch --yes --power
-python3 validation/scripts/validate.py --profile tensorflow --yes --log
+python3 validation/validate.py --profile ollama --yes --power --log
+python3 validation/validate.py --profile petsc --yes --power --log
+python3 validation/validate.py --profile onnxruntime --yes --log
+python3 validation/validate.py --profile onnxruntime_in_tree --yes --power --log
+python3 validation/validate.py --profile onnxruntime_migraphx_build --yes --log
+python3 validation/validate.py --profile pytorch --yes --power
+python3 validation/validate.py --profile tensorflow --yes --log
 ```
 
 ## Custom builds against this ROCm stack
@@ -319,7 +318,7 @@ the custom ROCm stack produced by this repository.
 - Validation profile `tensorflow_in_tree_functional_only` reuses an already built local wheel and validates the in-tree ROCm runtime path.
 - Validation profile `tensorflow_rocm_custom_promoted` installs from `/opt/rocm/wheels/tensorflow_rocm_custom/` and validates the system ROCm runtime path (`/opt/rocm`).
 - Important boundary:
-  - `validation/scripts/validate.py --profile tensorflow` remains an **in-tree ROCm** workflow.
+  - `validation/validate.py --profile tensorflow` remains an **in-tree ROCm** workflow.
   - a system-installed `/opt/rocm` stack is smoke-tested separately after wheel promotion, not by changing the default validation contract.
 
 System smoke example after promotion:
@@ -359,7 +358,7 @@ python -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_p
 
 ONNX Runtime inference validation with power:
 ```bash
-python3 validation/scripts/validate.py --profile onnxruntime_in_tree --yes --power --log
+python3 validation/validate.py --profile onnxruntime_in_tree --yes --power --log
 ```
 
 ## Workloads: behavior and metrics
@@ -383,13 +382,13 @@ Measured metrics:
   - optional power/energy
 
 Modes:
-- strict GPU inference (default for wrapper):
+- strict GPU inference:
   ```bash
-  python3 validation/scripts/llama_cpp_validate.py
+  python3 validation/validate.py --profile llama_cpp_infer --yes --power --log
   ```
 - smoke-only (no model download/inference):
   ```bash
-  python3 validation/scripts/llama_cpp_validate.py --smoke
+  python3 validation/validate.py --profile llama_cpp_smoke --yes --power --log
   ```
 
 ### Whisper

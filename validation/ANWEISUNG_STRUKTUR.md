@@ -9,7 +9,8 @@ Ziel: klare Pfade, keine Duplikate, keine Interpretationsspielraeume.
 
 ## 2. Verbindliche Regeln
 - Es gibt **genau einen** Python-Codepfad: `validation/src/`.
-- User-Entrypoints liegen nur in `validation/scripts/`.
+- User-Entrypoints liegen nur direkt unter `validation/`.
+- `validation/scripts/` ist interne Launcher-/Bootstrap-Implementierung, keine User-Oberflaeche.
 - Laufzeitdaten liegen nur in `validation/workspace/` (gitignored).
 - Caches liegen nur in `validation/workspace/cache/`.
 - Build-Artefakte externer Workloads liegen nur in `validation/workspace/builds/`.
@@ -23,7 +24,11 @@ validation/
 ├─ README.md
 ├─ AI_WORKFLOW_VALIDATION.md
 ├─ ANWEISUNG_STRUKTUR.md
-├─ run_validation.py
+├─ _launcher.py
+├─ validate.py
+├─ doctor.py
+├─ cache_gc.py
+├─ report_open.py
 ├─ pyproject.toml
 ├─ requirements-lock.txt
 ├─ .env.example
@@ -74,7 +79,8 @@ validation/
 - Details duerfen nicht in mehreren Dateien parallel gepflegt werden.
 
 ## 5. ROCm-Kontext (verbindlich)
-- Validierung muss gegen in-tree ROCm laufen, nicht gegen `/opt/rocm`.
+- Standardfall: Validierung laeuft gegen in-tree ROCm (`<build>/dist/rocm`).
+- Systemvalidierung gegen `/opt/rocm` ist nur ueber explizite `*_promoted`-Profile erlaubt.
 - Verantwortlich dafuer sind `src/core/tree.py` und `src/core/rocm_env.py`.
 - `doctor` bleibt no-download.
 

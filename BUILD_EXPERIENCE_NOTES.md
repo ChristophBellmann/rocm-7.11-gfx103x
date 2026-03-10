@@ -424,7 +424,7 @@
    - Profile: `validation/config/profiles/pytorch_rocm711_source.yaml` (in-tree backend).
    - Run:
      ```
-     python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
+     python3 validation/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
      ```
    - Build dependency: PyTorch's HIP tooling expects `find_package(hipblaslt REQUIRED)`, so `hipblaslt` must be present under `build-stage2/dist/rocm/lib/cmake/hipblaslt`.
    - Fixes needed for a working install+import:

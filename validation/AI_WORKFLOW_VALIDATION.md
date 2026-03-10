@@ -8,7 +8,7 @@ but is scoped specifically to **validation** (in-tree ROCm, plus optional third‚
 
 ## Situation
 
-- **Desired outcome:** keep `validation/scripts/validate.py` + `validation/src/` a reliable ‚Äúusability proof‚Äù of the in-tree build, and (optionally) a practical integration test bed.
+- **Desired outcome:** keep `validation/validate.py` + `validation/src/` a reliable ‚Äúusability proof‚Äù of the in-tree build, and (optionally) a practical integration test bed.
 - **Constraints:**
   - Must run against `<builddir>/dist/rocm` (no `/opt/rocm` assumptions).
   - Downloads/builds must be **explicitly confirmed** (Y/n) and bounded; avoid surprise multi‚ÄëGB downloads.
@@ -54,10 +54,10 @@ but is scoped specifically to **validation** (in-tree ROCm, plus optional third‚
 ## Validation
 
 - Always run a small smoke subset first:
-  - `python3 validation/scripts/validate.py --profile quick --log`
+  - `python3 validation/validate.py --profile quick --log`
 - If adding a third-party check:
   - Confirm it respects `validation/workspace/` for caches/build outputs.
-  - Run with `python3 validation/scripts/validate.py --yes --log`.
+  - Run with `python3 validation/validate.py --yes --log`.
 - Clearly label what was actually verified vs. planned.
 
 ---
@@ -95,7 +95,7 @@ but is scoped specifically to **validation** (in-tree ROCm, plus optional third‚
 ## Handover
 
 - First command to run:
-  - `python3 validation/scripts/validate.py --profile quick`
+  - `python3 validation/validate.py --profile quick`
 - If third-party checks are desired:
-  - `python3 validation/scripts/validate.py --yes`
+  - `python3 validation/validate.py --yes`
 - If a check fails: re-run with `--log` and include the `validation/workspace/runs/<run_id>/logs/*.log` + return code.
