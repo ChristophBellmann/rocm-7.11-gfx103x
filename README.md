@@ -386,6 +386,10 @@ cp -a /etc/OpenCL/vendors/amdocl64.icd "build-stage2/install-backups/${TS}/amdoc
 - `/opt/rocm/wheels/pytorch_rocm711/`
 - `/opt/rocm/wheels/onnxruntime_rocm711/`
 
+Current inventory and the distinction between promoted wheels vs. git-only ROCm
+fixes is documented in:
+- `CUSTOM_ROCM_ARTIFACTS.md`
+
 TensorFlow wheel promotion is handled separately via:
 - `/opt/rocm/wheels/tensorflow_rocm_custom/`
 - source-of-truth helper in the TensorFlow fork:
