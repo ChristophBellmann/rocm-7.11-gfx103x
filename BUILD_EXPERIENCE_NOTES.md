@@ -20,7 +20,7 @@
 0a. **2026-03-03: TensorFlow ROCm build and clang-22 include handling**
    - TensorFlow `v2.19.0` `third_party/gpus/rocm_configure.bzl` only listed builtin clang include dirs up to version 20 for ROCm.
    - On this system ROCm ships clang resource headers under `.../clang/22/include`.
-   - Build helper `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh` now patches `rocm_configure.bzl` during build setup to append:
+   - The TensorFlow fork build helper `tools/rocm_release/build_tensorflow_rocm_wheel.sh` patches `rocm_configure.bzl` during build setup to append:
      - `/lib/llvm/lib/clang/21/include`
      - `/lib/llvm/lib/clang/22/include`
    - This keeps the TensorFlow ROCm build path deterministic for this local compiler stack.
@@ -28,7 +28,7 @@
 0b. **2026-03-07: TensorFlow ROCm runtime fix for ROCm LLVM / COMGR symbol collisions**
    - A freshly built TensorFlow ROCm wheel still crashed on the first GPU op even with hipBLASLt init disabled.
    - Native backtraces showed ROCm COMGR / HIP resolving into TensorFlow's bundled LLVM symbols from `libtensorflow_framework.so.2` (`llvm::Twine`, `llvm::compression`, `llvm::localCache`) instead of ROCm's own `libLLVM.so`.
-   - The durable fix is now in `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh`:
+   - The durable fix is now in the TensorFlow fork helper `tools/rocm_release/build_tensorflow_rocm_wheel.sh`:
      - prefer the in-tree ROCm dist by default,
      - rewrite `.tf_configure.bazelrc` to pin `ROCM_PATH` and `LD_LIBRARY_PATH` to that in-tree dist,
      - postprocess the produced wheel with `patchelf --rename-dynamic-symbols` so TensorFlow's dynamic LLVM exports are renamed across the wheel DSOs and cannot interpose on ROCm COMGR anymore.
@@ -39,23 +39,35 @@
    - loaded HIP runtime: `build-stage2/dist/rocm/lib/libamdhip64.so.7.2.53150-1cedb43795`
    - hipBLASLt remains disabled for this gfx1031 profile (`TF_ROCM_DISABLE_HIPBLASLT=1`, `TF_ROCM_USE_HIPBLASLT=0`, `TF_ROCM_DISABLE_HIPBLASLT_INIT=1`).
 
-0c. **2026-03-08: TensorFlow wheel build logic moved into the TensorFlow fork**
-   - TheRock now treats TensorFlow as an external framework build again.
-   - `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh` is reduced to a thin integration wrapper:
-     - resolve/pin the ROCm dist to test against,
-     - clone/update the TensorFlow fork workspace,
-     - delegate the actual wheel build to the TensorFlow fork's own entrypoint.
-   - The TensorFlow fork now owns the wheel build logic under:
-     - `tools/gfx1031/build_rocm_wheel.sh`
-     - `tools/gfx1031/README.md`
+0c. **2026-03-10: Framework wheel packaging moved out of `validation/`**
+   - TheRock now treats PyTorch, ONNX Runtime, and TensorFlow as external framework builds again.
+   - The framework forks own the build/promote helpers under `tools/rocm_release/`.
+   - TheRock keeps only thin integration wrappers and validation profiles.
    - Resulting boundary:
-     - TheRock repo: custom ROCm build + ROCm validation + integration wrapper
-     - TensorFlow fork: TensorFlow source patches + TensorFlow wheel build logic
+     - TheRock repo: custom ROCm build + runtime validation + integration wrappers
+     - Framework forks: source patches + wheel build logic + wheel promote helpers
+   - This now applies consistently to:
+     - `rocm-7.11-pytorch-gfx103x`
+     - `rocm-7.11-onnxruntime-gfx103x`
+     - `rocm-7.11-tensorflow-gfx103x`
 
 0d. **2026-03-08: TensorFlow functional validation moved to a dedicated venv**
    - The post-build TensorFlow matmul step no longer installs the wheel into the shared validation venv `validation/workspace/envs/py`.
    - It now creates/uses `validation/workspace/envs/tensorflow_rocm/`.
    - Reason: TensorFlow runtime pins (`numpy`, `protobuf`, `grpcio`, etc.) otherwise leak into unrelated validation workloads and create cross-profile package conflicts.
+
+0e. **2026-03-10: Unified custom-wheel lifecycle across framework forks**
+   - The operational model is now the same for PyTorch, ONNX Runtime, and TensorFlow:
+     1. build repo-local against the custom in-tree ROCm stack,
+     2. validate against `<builddir>/dist/rocm`,
+     3. promote to `/opt/rocm/wheels/...`,
+     4. validate the promoted system state separately via `*_promoted` profiles.
+   - TheRock validation now checks both runtime linkage/prefix and workload behavior with stats/power where applicable.
+   - Stable consumer entrypoints are the promoted aliases under `/opt/rocm/wheels/...`, e.g.:
+     - `torch-current.whl`
+     - `onnxruntime-current.whl`
+     - `tensorflow-current.whl`
+   - Consumer repos are expected to use only the promoted artifacts, not local build trees.
 
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.

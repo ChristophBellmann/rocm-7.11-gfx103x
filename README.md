@@ -1,10 +1,11 @@
-> AI-assisted work follows `AI_WORKFLOW.md`; concrete repo workflow: `AI_WORKFLOW_THEROCK_GFX1031.md`.
+> AI-assisted work follows `AI_WORKFLOW.md`; repo-specific workflow and document hierarchy live in `AI_WORKFLOW_THEROCK_GFX1031.md` and `AGENTS.md`.
 
 # TheRock_gfx1031 (ROCm 7.11, RDNA2 gfx103X)
 
 This repository is a custom TheRock branch that builds a repo-local ROCm/HIP stack.
 For **RDNA2 gfx103X**, tested on **Radeon RX 6700 XT / gfx1031**.
-Validation runs without installing anything system-wide (no `/opt/rocm` required).
+Validation defaults to the in-tree ROCm stack under `<builddir>/dist/rocm`.
+Separate `*_promoted` validation profiles are used after selected artifacts have been promoted to `/opt/rocm`.
 Core motivation: this GPU class is not reliably supported by default in the required workflow depth,
 so this repo provides the custom build, fixes, and validation needed to make it practically usable.
 
@@ -68,18 +69,26 @@ Expected: platform count > 0 and an AMD GPU device.
 This repo can build the AMD OpenCL runtime (`features.enable_ocl_runtime: true`).
 `install_to_opt.sh` also installs `/etc/OpenCL/vendors/amdocl64.icd` for system OpenCL discovery.
 
-## Status (2026-03-01)
+## Status (2026-03-10)
 
 - Active working branch: `rocm-7.11-gfx103x`.
-- Current HEAD: `20e6e1c`.
-- For recent downstream validation/wheel workflows, **no new source changes** were committed in this repo.
-- This TheRock state remains the base for the custom ROCm stack and wheels in `/opt/rocm/wheels/...`.
+- This repo is the source of truth for the custom ROCm stack itself.
+- Framework wheel packaging now lives in the matching framework forks:
+  - `rocm-7.11-pytorch-gfx103x`
+  - `rocm-7.11-onnxruntime-gfx103x`
+  - `rocm-7.11-tensorflow-gfx103x`
+- `validation/` remains the integration and runtime validation layer for:
+  - in-tree ROCm (`<builddir>/dist/rocm`)
+  - explicitly promoted system artifacts under `/opt/rocm`
+- Current promoted artifact inventory is documented in:
+  - `CUSTOM_ROCM_ARTIFACTS.md`
 
 ### Custom wheel/build references
 
 Custom builds against this ROCm stack (PyTorch, ONNX Runtime, TensorFlow), including
-wheel output locations and promote/install notes, are documented in:
+the current build/validate/promote model, are documented in:
 - `validation/README.md` (section: **Custom builds against this ROCm stack**)
+- `CUSTOM_ROCM_ARTIFACTS.md` (artifact vs. git-only fix inventory)
 
 ### Compilers used (reproducible)
 
@@ -100,7 +109,7 @@ wheel output locations and promote/install notes, are documented in:
   - `monitor_gfx1031.sh` (build status snapshots / polling)
   - `test_gfx1031.sh` (sanity + consistency + benchmarks + MIOpen checks)
   - `test_docker_gfx1031.sh` (host vs docker comparison)
-  - `validation/` (Python “usability & workloads” validation)
+  - `validation/` (public validation CLI and workload validation)
   - `install_to_opt.sh` (optional: mirror dist to `/opt/rocm`)
   - `rocm-7.11-pytorch-gfx103x/tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh` (optional: promote custom PyTorch wheel to `/opt/rocm`)
 
@@ -204,6 +213,8 @@ Note: the docker image is used as a runtime container; host-build-tool presence 
 ## Validation suite (apps + ROCm usability): `validation/`
 
 The validation suite proves that the in-tree ROCm stack is usable **before** any system install.
+It also contains explicit promoted-system profiles for artifacts that have already been
+promoted to `/opt/rocm/wheels/...`.
 It runs sustained GPU tests with optional power sampling.
 
 Start here:
@@ -211,7 +222,14 @@ Start here:
 python3 validation/validate.py
 ```
 
-The validation scripts auto-create and manage a repo-local Python venv under `validation/workspace/` (no manual activation required).
+Public entrypoints live directly under `validation/`:
+- `validation/validate.py`
+- `validation/doctor.py`
+- `validation/cache_gc.py`
+- `validation/report_open.py`
+
+The validation code auto-creates and manages a repo-local Python venv under
+`validation/workspace/` (no manual activation required).
 
 Validation profiles:
 - `all` (default): enables everything (ROCm benches + MIOpen + all workloads incl. Whisper/MFEM/PETSc/PyTorch/llama.cpp/Ollama) and prompts once before downloads
@@ -234,7 +252,7 @@ python3 validation/validate.py --profile quick --no-downloads
 python3 validation/validate.py --profile all --yes --power --log
 ```
 
-See `validation/README.md` for full details, configuration, and per-workload one-shot validators.
+See `validation/README.md` for full details, profile semantics, and custom wheel workflows.
 
 Example full regression run (with logs):
 ```bash
@@ -360,8 +378,9 @@ Reproducibility notes:
 
 ## Optional: system-wide install (/opt/rocm)
 
-The intended workflow is **in-tree** (no system install). If you want a system-wide prefix anyway,
-use `install_to_opt.sh` to mirror the Stage‑2 dist to `/opt/rocm`.
+The intended default workflow is **in-tree** (no system install).
+When a system-wide prefix is required, use `install_to_opt.sh` to mirror the Stage‑2 dist to `/opt/rocm`
+and use the explicit promoted validation profiles afterwards.
 
 ```bash
 # Builds are incremental; ensure Stage‑2 dist exists first:

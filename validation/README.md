@@ -1,7 +1,8 @@
 # Validation (ROCm usability + workload validation)
 
 This directory contains the **repo-local validation suite** for `TheRock_gfx1031`.
-It validates in-tree ROCm artifacts under `<builddir>/dist/rocm` and avoids depending on `/opt/rocm` for runtime checks.
+Its default mode validates in-tree ROCm artifacts under `<builddir>/dist/rocm`.
+Separate `*_promoted` profiles validate explicitly promoted system artifacts under `/opt/rocm`.
 
 Goals:
 1. **ROCm usability proof**: `rocminfo`, HIP compile+run, and small library smokes/benches.
@@ -38,9 +39,8 @@ python3 validation/validate.py --log
 ### Main runner
 
 Primary interface: use `validation/validate.py --profile ...`.
-The workload-specific scripts under `validation/scripts/*_validate.py` are
-convenience wrappers for compact summaries, not the source of truth for
-workflow logic.
+The public CLI surface lives directly under `validation/`.
+`validation/scripts/` is internal launcher/bootstrap code, not a second user-facing API.
 
 - Default profile (`all`, comprehensive):
   ```bash
@@ -289,7 +289,6 @@ the custom ROCm stack produced by this repository.
   - The actual TensorFlow wheel packaging helpers live in the TensorFlow fork itself under:
     - `tools/rocm_release/build_tensorflow_rocm_wheel.sh`
     - `tools/rocm_release/install_tensorflow_rocm_wheel_to_opt.sh`
-  - `tools/gfx1031/build_rocm_wheel.sh` remains the repo-local implementation used by the release helper.
 - Artifacts:
   - build workspace: `validation/workspace/builds/tensorflow_rocm/`
   - wheels: `validation/workspace/cache/wheels/tensorflow_rocm_custom/`
