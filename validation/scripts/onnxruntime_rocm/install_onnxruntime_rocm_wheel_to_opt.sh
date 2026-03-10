@@ -1,95 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-SRC_DIR="${SRC_DIR:-${ROOT}/validation/workspace/cache/wheels/onnxruntime_rocm711}"
-DEST_DIR="${DEST_DIR:-/opt/rocm/wheels/onnxruntime_rocm711}"
-TS="$(date +%Y%m%d_%H%M%S)"
-
-usage() {
-  echo "Usage:"
-  echo "  $0 [path/to/onnxruntime_rocm-*.whl]"
-  echo "  $0 --restore [onnxruntime_rocm-*.whl]"
-}
-
-find_latest_wheel() {
-  ls -1t "${SRC_DIR}"/onnxruntime_rocm-*.whl 2>/dev/null | head -n1 || true
-}
-
-restore_latest_backup() {
-  local wheel_name="$1"
-  local target="${DEST_DIR}/${wheel_name}"
-  local latest
-  latest="$(ls -1t "${target}".bak_* 2>/dev/null | head -n1 || true)"
-  if [[ -z "${latest}" ]]; then
-    echo "No backup found for ${target}" >&2
-    exit 1
-  fi
-  echo "Restoring backup:"
-  echo "  from: ${latest}"
-  echo "  to:   ${target}"
-  sudo cp -f "${latest}" "${target}"
-  sudo sha256sum "${target}"
-  ls -lh "${target}"
-}
-
-MODE="install"
-SRC_WHEEL=""
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
+ONNXRUNTIME_ROCM_REPO="${ONNXRUNTIME_ROCM_REPO:-${ROOT}/validation/workspace/cache/git/onnxruntime_rocm711}"
+DEFAULT_SRC_DIR="${SRC_DIR:-${ROOT}/validation/workspace/cache/wheels/onnxruntime_rocm711}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  usage
+  cat <<USAGE
+TheRock integration wrapper for the external ORT promote helper.
+
+Environment:
+  ONNXRUNTIME_ROCM_REPO=${ONNXRUNTIME_ROCM_REPO}
+  SRC_DIR=${DEFAULT_SRC_DIR}
+USAGE
   exit 0
 fi
 
-if [[ "${1:-}" == "--restore" ]]; then
-  MODE="restore"
-  if [[ -n "${2:-}" ]]; then
-    WHEEL_NAME="$(basename "${2}")"
-  else
-    LATEST="$(find_latest_wheel)"
-    if [[ -z "${LATEST}" ]]; then
-      echo "No wheel found in ${SRC_DIR}" >&2
-      exit 1
-    fi
-    WHEEL_NAME="$(basename "${LATEST}")"
-  fi
-  restore_latest_backup "${WHEEL_NAME}"
-  exit 0
+if [[ "${ONNXRUNTIME_ROCM_REPO}" != /* ]]; then
+  ONNXRUNTIME_ROCM_REPO="${ROOT}/${ONNXRUNTIME_ROCM_REPO}"
 fi
 
-if [[ -n "${1:-}" ]]; then
-  SRC_WHEEL="${1}"
-else
-  SRC_WHEEL="$(find_latest_wheel)"
-fi
-
-if [[ -z "${SRC_WHEEL}" || ! -f "${SRC_WHEEL}" ]]; then
-  echo "Source wheel not found: ${SRC_WHEEL:-<empty>}" >&2
-  echo "Checked SRC_DIR=${SRC_DIR}" >&2
-  usage >&2
+HELPER="${ONNXRUNTIME_ROCM_REPO}/tools/rocm_release/install_onnxruntime_rocm_wheel_to_opt.sh"
+if [[ ! -x "${HELPER}" ]]; then
+  echo "ERROR: missing ORT release helper: ${HELPER}" >&2
+  echo "Expected repo: ${ONNXRUNTIME_ROCM_REPO}" >&2
   exit 1
 fi
 
-DEST_WHEEL="${DEST_DIR}/$(basename "${SRC_WHEEL}")"
-
-echo "Source: ${SRC_WHEEL}"
-echo "Target: ${DEST_WHEEL}"
-
-sudo mkdir -p "${DEST_DIR}"
-
-if [[ -f "${DEST_WHEEL}" ]]; then
-  BACKUP="${DEST_WHEEL}.bak_${TS}"
-  echo "Backup: ${BACKUP}"
-  sudo cp -f "${DEST_WHEEL}" "${BACKUP}"
+if [[ "${DEFAULT_SRC_DIR}" != /* ]]; then
+  DEFAULT_SRC_DIR="${ROOT}/${DEFAULT_SRC_DIR}"
 fi
 
-sudo cp -f "${SRC_WHEEL}" "${DEST_WHEEL}"
+find_latest_wheel() {
+  ls -1t "${DEFAULT_SRC_DIR}"/onnxruntime_rocm-*.whl 2>/dev/null | head -n1 || true
+}
 
-echo
-echo "SHA256:"
-sha256sum "${SRC_WHEEL}"
-sudo sha256sum "${DEST_WHEEL}"
+ARGS=("$@")
+if [[ "${#ARGS[@]}" -eq 0 ]]; then
+  latest="$(find_latest_wheel)"
+  if [[ -n "${latest}" ]]; then
+    ARGS=("${latest}")
+  fi
+fi
 
-echo
-echo "Installed wheel:"
-ls -lh "${DEST_WHEEL}"
+exec env SRC_DIR="${DEFAULT_SRC_DIR}" bash "${HELPER}" "${ARGS[@]}"

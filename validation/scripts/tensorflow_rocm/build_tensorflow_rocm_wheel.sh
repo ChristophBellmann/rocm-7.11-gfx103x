@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_REPO_DIR="${TF_REPO_DIR:-${ROOT}/validation/workspace/builds/tensorflow_rocm/tensorflow}"
 WORK_ROOT="${WORK_ROOT:-${ROOT}/validation/workspace/builds/tensorflow_rocm}"
-TF_SRC_DIR="${TF_SRC_DIR:-${WORK_ROOT}/tensorflow}"
 IN_TREE_ROCM_PATH="${ROOT}/build-stage2/dist/rocm"
 DEFAULT_ROCM_PATH="${IN_TREE_ROCM_PATH}"
 if [[ ! -d "${DEFAULT_ROCM_PATH}" ]]; then
@@ -22,14 +22,27 @@ fi
 TF_REPO_URL="${TF_REPO_URL:-https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git}"
 TF_REF="${TF_REF:-christoph/gfx1031-buildfixes}"
 WHEEL_OUT_DIR="${WHEEL_OUT_DIR:-${ROOT}/validation/workspace/cache/wheels/tensorflow_rocm_custom}"
-BUILD_START_LOG="${BUILD_START_LOG:-${WORK_ROOT}/build_start.log}"
 XDG_CACHE_HOME="${XDG_CACHE_HOME:-${ROOT}/validation/workspace/cache/xdg}"
 BAZELISK_HOME="${BAZELISK_HOME:-${ROOT}/validation/workspace/cache/bazelisk}"
 BAZEL_OUTPUT_USER_ROOT="${BAZEL_OUTPUT_USER_ROOT:-${ROOT}/validation/workspace/cache/bazel/output_user_root}"
 CCACHE_DIR="${CCACHE_DIR:-${ROOT}/validation/workspace/cache/ccache}"
 DO_UPDATE="${DO_UPDATE:-1}"
 
-for var_name in WORK_ROOT TF_SRC_DIR WHEEL_OUT_DIR BUILD_START_LOG XDG_CACHE_HOME BAZELISK_HOME BAZEL_OUTPUT_USER_ROOT CCACHE_DIR; do
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<USAGE
+TheRock integration wrapper for the external TensorFlow ROCm release helper.
+
+Environment:
+  TF_REPO_DIR=${TF_REPO_DIR}
+  TF_REPO_URL=${TF_REPO_URL}
+  TF_REF=${TF_REF}
+  WORK_ROOT=${WORK_ROOT}
+  WHEEL_OUT_DIR=${WHEEL_OUT_DIR}
+USAGE
+  exit 0
+fi
+
+for var_name in TF_REPO_DIR WORK_ROOT WHEEL_OUT_DIR XDG_CACHE_HOME BAZELISK_HOME BAZEL_OUTPUT_USER_ROOT CCACHE_DIR; do
   var_value="${!var_name}"
   if [[ "${var_value}" != /* ]]; then
     printf -v "${var_name}" '%s/%s' "${ROOT}" "${var_value}"
@@ -42,28 +55,17 @@ if [[ ! -d "${ROCM_PATH}" ]]; then
 fi
 
 mkdir -p "${WORK_ROOT}" "${WHEEL_OUT_DIR}" "${XDG_CACHE_HOME}" "${BAZELISK_HOME}" "${BAZEL_OUTPUT_USER_ROOT}" "${CCACHE_DIR}"
-mkdir -p "$(dirname "${BUILD_START_LOG}")"
-: > "${BUILD_START_LOG}"
-# Do not use tee process substitution here: long-lived Bazel helpers inherit the
-# pipe FD and the wrapper can appear hung after a successful build.
-exec >> "${BUILD_START_LOG}" 2>&1
-
-echo "TensorFlow ROCm integration wrapper"
-echo "- tf repo url: ${TF_REPO_URL}"
-echo "- tf ref: ${TF_REF}"
-echo "- tf src dir: ${TF_SRC_DIR}"
-echo "- ROCM_PATH: ${ROCM_PATH}"
-
-if [[ ! -d "${TF_SRC_DIR}/.git" ]]; then
-  git clone "${TF_REPO_URL}" "${TF_SRC_DIR}"
+if [[ ! -d "${TF_REPO_DIR}/.git" ]]; then
+  git clone "${TF_REPO_URL}" "${TF_REPO_DIR}"
 fi
 
-if [[ ! -x "${TF_SRC_DIR}/tools/gfx1031/build_rocm_wheel.sh" ]]; then
-  echo "ERROR: TensorFlow repo is missing tools/gfx1031/build_rocm_wheel.sh" >&2
+HELPER="${TF_REPO_DIR}/tools/rocm_release/build_tensorflow_rocm_wheel.sh"
+if [[ ! -x "${HELPER}" ]]; then
+  echo "ERROR: TensorFlow repo is missing ${HELPER}" >&2
   exit 1
 fi
 
-cd "${TF_SRC_DIR}"
+cd "${TF_REPO_DIR}"
 repo_dirty=0
 if [[ -n "$(git status --porcelain)" ]]; then
   repo_dirty=1
@@ -81,10 +83,9 @@ fi
 export ROCM_PATH
 export WORK_ROOT
 export WHEEL_OUT_DIR
-export BUILD_LOG="${BUILD_START_LOG}"
 export XDG_CACHE_HOME
 export BAZELISK_HOME
 export BAZEL_OUTPUT_USER_ROOT
 export CCACHE_DIR
 
-exec bash "${TF_SRC_DIR}/tools/gfx1031/build_rocm_wheel.sh"
+exec bash "${HELPER}"

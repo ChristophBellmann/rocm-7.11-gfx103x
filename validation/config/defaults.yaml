@@ -35,10 +35,18 @@ workloads:
     # If true, run pip install even if torch is already present (useful when
     # switching ROCm wheel channels or testing in-tree runtime compatibility).
     force_reinstall: false
+    # Optional packages to remove from the validation venv before installing the
+    # requested torch stack. Useful when switching from in-tree ROCm Python SDK
+    # environments to promoted system-wheel validation.
+    uninstall_packages: []
     # If set, enforce that ROCm runtime libraries are loaded from this prefix.
     # Special value: "in-tree" => require libs from <builddir>/dist/rocm.
     # Example (system install): "/opt/rocm"
     require_rocm_prefix: ""
+    # Optional companion checks for the promoted custom wheel family.
+    # If enabled, the workload step will fail unless these packages import.
+    require_torchaudio: false
+    require_torchcodec: false
     # Optional: build and install PyTorch from source (very heavy).
     # This uses the repo's `external-builds/pytorch/build_prod_wheels.py` tooling,
     # which installs ROCm SDK Python packages and produces a ROCm-enabled `torch`
@@ -136,6 +144,8 @@ workloads:
     work_root: "validation/workspace/builds/onnxruntime_rocm"
     wheel_out_dir: "validation/workspace/cache/wheels/onnxruntime_rocm711"
     do_update: true
+    use_in_tree_rocm: true
+    require_rocm_prefix: ""
   tensorflow:
     # Build settings for validation/src/steps/workloads/tensorflow/rocm_wheel.py
     repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"

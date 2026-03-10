@@ -13,7 +13,7 @@ from typing import Any, Callable
 from core.artifacts import write_report_json
 from core.context import Context
 from core.power import PowerSampler, discover_sensors, format_power_metrics, write_csv
-from core.rocm_env import activated_env, which
+from core.rocm_env import activated_env, deactivated_env, which
 from core.tree import detect_build_dirs, detect_default_build_dir, rocm_dist_for_build
 from core.reporting.models import StepResult
 from core.runner import fmt_duration, run_cmd
@@ -281,10 +281,12 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
     if isinstance(resolved, StepResult):
         return StepResult(build_dir, resolved.name, resolved.status, resolved.duration, resolved.metric)
     wl, wheel, model = resolved
+    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
+    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
 
     # Keep ORT import ABI-stable in this venv for custom wheel tests.
     install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<7", str(wheel)]
-    r_install = run_cmd(ctx.repo_root, env, install_cmd, 600, log)
+    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
     if r_install.rc != 0:
         return StepResult(
             build_dir,
@@ -307,6 +309,7 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
                 "import json\n"
                 "import time\n"
                 "import numpy as np\n"
+                "import os\n"
                 "import onnxruntime as ort\n"
                 f"model = r'''{model}'''\n"
                 f"profile_prefix = r'''{profile_prefix}'''\n"
@@ -352,13 +355,23 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
                 "  'session_providers': sess_providers,\n"
                 "  'model': model,\n"
                 "}\n"
+                "try:\n"
+                "  with open('/proc/self/maps', 'r', encoding='utf-8', errors='ignore') as f:\n"
+                "    libs = sorted({line.strip().split()[5] for line in f if len(line.strip().split()) >= 6 and line.strip().split()[5].startswith('/') and '.so' in line.strip().split()[5]})\n"
+                "  for p in libs:\n"
+                "    b = os.path.basename(p)\n"
+                "    if b == 'libamdhip64.so' or b.startswith('libamdhip64.so.'):\n"
+                "      res['hip_lib'] = p\n"
+                "      break\n"
+                "except Exception:\n"
+                "  pass\n"
                 "print('ORT_RESULT_JSON=' + json.dumps(res, sort_keys=True))\n"
             ),
             encoding="utf-8",
         )
 
         def run_infer(sampler: PowerSampler | None):
-            r = run_cmd(ctx.repo_root, env, [py, str(script)], timeout_s, log)
+            r = run_cmd(ctx.repo_root, run_env, [py, str(script)], timeout_s, log)
             return r, sampler
 
         r_infer, sampler = _with_power_sampler(ctx, cfg, build_dir, "onnxruntime_infer", run_infer)
@@ -396,6 +409,17 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
         f"iters_per_s={float(data.get('iters_per_s', 0.0)):.2f} "
         f"rocm_events={int(data.get('provider_events_rocm', 0))}"
     )
+    hip_lib = str(data.get("hip_lib", "") or "").strip()
+    if hip_lib:
+        metric += f" hip_lib={hip_lib}"
+    metric += f" rocm_env={'in-tree' if use_in_tree else 'system'}"
+    req = str(wl.get("require_rocm_prefix", "") or "").strip()
+    if req:
+        expected = str(rocm_dist) if req == "in-tree" else req.rstrip("/")
+        if not hip_lib:
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_infer.dur_ms), f"could not determine loaded ROCm runtime lib (libamdhip64) | expected prefix: {expected} | {metric}")
+        if not hip_lib.startswith(expected + "/"):
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_infer.dur_ms), f"ROCm runtime lib not from expected prefix: {expected} | hip_lib={hip_lib}")
     metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
     return StepResult(
         build_dir,
@@ -413,10 +437,12 @@ def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_di
     if isinstance(resolved, StepResult):
         return StepResult(build_dir, resolved.name, resolved.status, resolved.duration, resolved.metric)
     wl, wheel, model = resolved
+    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
+    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
 
     # Keep ORT import ABI-stable in this venv for custom wheel tests.
     install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<7", str(wheel)]
-    r_install = run_cmd(ctx.repo_root, env, install_cmd, 600, log)
+    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
     if r_install.rc != 0:
         return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
 
@@ -433,6 +459,7 @@ def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_di
                 "import json\n"
                 "import time\n"
                 "import numpy as np\n"
+                "import os\n"
                 "import onnxruntime as ort\n"
                 f"model = r'''{model}'''\n"
                 f"profile_prefix = r'''{profile_prefix}'''\n"
@@ -478,13 +505,23 @@ def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_di
                 "  'session_providers': sess_providers,\n"
                 "  'model': model,\n"
                 "}\n"
+                "try:\n"
+                "  with open('/proc/self/maps', 'r', encoding='utf-8', errors='ignore') as f:\n"
+                "    libs = sorted({line.strip().split()[5] for line in f if len(line.strip().split()) >= 6 and line.strip().split()[5].startswith('/') and '.so' in line.strip().split()[5]})\n"
+                "  for p in libs:\n"
+                "    b = os.path.basename(p)\n"
+                "    if b == 'libamdhip64.so' or b.startswith('libamdhip64.so.'):\n"
+                "      res['hip_lib'] = p\n"
+                "      break\n"
+                "except Exception:\n"
+                "  pass\n"
                 "print('ORT_RESULT_JSON=' + json.dumps(res, sort_keys=True))\n"
             ),
             encoding="utf-8",
         )
 
         def run_infer(sampler: PowerSampler | None):
-            r = run_cmd(ctx.repo_root, env, [py, str(script)], timeout_s, log)
+            r = run_cmd(ctx.repo_root, run_env, [py, str(script)], timeout_s, log)
             return r, sampler
 
         r_infer, sampler = _with_power_sampler(ctx, cfg, build_dir, "onnxruntime_migraphx_infer", run_infer)
@@ -504,6 +541,17 @@ def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_di
         f"iters_per_s={float(data.get('iters_per_s', 0.0)):.2f} "
         f"migraphx_events={int(data.get('provider_events_migraphx', 0))}"
     )
+    hip_lib = str(data.get("hip_lib", "") or "").strip()
+    if hip_lib:
+        metric += f" hip_lib={hip_lib}"
+    metric += f" rocm_env={'in-tree' if use_in_tree else 'system'}"
+    req = str(wl.get("require_rocm_prefix", "") or "").strip()
+    if req:
+        expected = str(rocm_dist) if req == "in-tree" else req.rstrip("/")
+        if not hip_lib:
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_infer.dur_ms), f"could not determine loaded ROCm runtime lib (libamdhip64) | expected prefix: {expected} | {metric}")
+        if not hip_lib.startswith(expected + "/"):
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_infer.dur_ms), f"ROCm runtime lib not from expected prefix: {expected} | hip_lib={hip_lib}")
     metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
     return StepResult(build_dir, step_name, "OK", fmt_duration(r_install.dur_ms + r_infer.dur_ms), metric)
 

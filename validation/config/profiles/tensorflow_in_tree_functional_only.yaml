@@ -1,0 +1,28 @@
+# Validate the locally built TensorFlow ROCm wheel against the in-tree custom ROCm dist.
+run:
+  profile: tensorflow_in_tree_functional_only
+  ask_before_downloads: false
+  downloads_enabled: false
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+  pytorch: false
+  petsc_hip: false
+  tensorflow_rocm_wheel: false
+  tensorflow_functional: true
+
+workloads:
+  tensorflow:
+    wheel_out_dir: "validation/workspace/cache/wheels/tensorflow_rocm_custom"
+    use_in_tree_rocm: true
+    disable_hipblaslt: 1
+    use_hipblaslt: 0
+    disable_hipblaslt_init: 1
+    require_rocm_prefix: "in-tree"

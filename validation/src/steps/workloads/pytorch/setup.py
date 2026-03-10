@@ -113,6 +113,14 @@ def _resolve_package_spec(spec: str) -> str:
     return f"{name}{marker}{resolved_path}"
 
 
+def _best_effort_uninstall(ctx: Context, env: dict[str, str], packages: list[str], timeout_s: int, log: Path | None) -> None:
+    pkgs = [p.strip() for p in packages if str(p).strip()]
+    if not pkgs:
+        return
+    cmd = [sys.executable, "-m", "pip", "uninstall", "-y"] + pkgs
+    run_cmd(ctx.repo_root, env, cmd, timeout_s, log)
+
+
 def _run_logged(
     cwd: Path, env: dict[str, str], cmd: list[str], timeout_s: int | None, log: Path | None
 ) -> tuple[int, int]:
@@ -571,6 +579,9 @@ def ensure_pytorch(
         return StepResult("<meta>", "PyTorch setup", "SKIP", "0ms", "downloads disabled (cannot install torch)")
 
     t = int(cfg.get("timeouts_s", {}).get("pytorch_install", 1800))
+    uninstall_packages = list(wl.get("uninstall_packages", []) or [])
+    if uninstall_packages:
+        _best_effort_uninstall(ctx, env, uninstall_packages, t, log)
     pip_args = list(wl.get("pip_args", []) or [])
     packages = list(wl.get("packages", []) or [])
     if not packages:

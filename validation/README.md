@@ -37,6 +37,11 @@ python3 validation/scripts/validate.py --log
 
 ### Main runner
 
+Primary interface: use `validation/scripts/validate.py --profile ...`.
+The workload-specific scripts under `validation/scripts/*_validate.py` are
+convenience wrappers for compact summaries, not the source of truth for
+workflow logic.
+
 - Default profile (`all`, comprehensive):
   ```bash
   python3 validation/scripts/validate.py
@@ -101,10 +106,14 @@ Focused profiles:
 - ONNX Runtime ROCm wheel build: `onnxruntime`
 - ONNX Runtime in-tree ROCm wheel + inference test: `onnxruntime_in_tree`
 - ONNX Runtime in-tree ROCm wheel + MIGraphX EP inference test: `onnxruntime_migraphx_build`
+- ONNX Runtime promoted ROCm wheel from `/opt/rocm`: `onnxruntime_rocm711_promoted`
 - PyTorch GPU compute: `pytorch`
 - PyTorch in-tree ROCm enforcement: `pytorch_in_tree`
 - PyTorch ROCm 7.11 source build: `pytorch_rocm711_source`
+- PyTorch ROCm 7.11 promoted wheel family from `/opt/rocm`: `pytorch_rocm711_promoted`
 - TensorFlow ROCm wheel build: `tensorflow`
+- TensorFlow in-tree functional-only check: `tensorflow_in_tree_functional_only`
+- TensorFlow promoted wheel from `/opt/rocm`: `tensorflow_rocm_custom_promoted`
 
 Show CLI help:
 ```bash
@@ -112,6 +121,10 @@ python3 validation/scripts/validate.py --help
 ```
 
 ## Workload-focused one-shot commands
+
+These are convenience wrappers around the main CLI. Prefer profiles when you
+want reproducible automation, CI integration, or a single consistent command
+surface.
 
 ```bash
 python3 validation/scripts/llama_cpp_validate.py
@@ -157,15 +170,21 @@ the custom ROCm stack produced by this repository.
   - stable alias:
     - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
     - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl` (optional companion wheel)
-- Companion torchcodec wheel:
-  - build helper:
-    - `validation/scripts/pytorch_rocm/build_torchcodec_rocm_wheel.sh`
-  - typical cached artifact:
-    - `validation/workspace/cache/wheels/pytorch_rocm711/torchcodec-*.whl`
-  - promote helper:
-    - `validation/scripts/pytorch_rocm/install_torchcodec_rocm_wheel_to_opt.sh`
-- Promote helper:
-  - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh`
+    - `/opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl` (optional companion wheel)
+- Packaging helpers now live in the PyTorch fork and are the source of truth:
+  - Repo: `https://github.com/ChristophBellmann/rocm-7.11-pytorch-gfx103x`
+  - Directory: `tools/rocm_release/`
+  - Typical local commands there:
+    - `./tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh`
+    - `./tools/rocm_release/build_torchcodec_rocm_wheel.sh`
+    - `./tools/rocm_release/install_torchcodec_rocm_wheel_to_opt.sh`
+    - `./tools/rocm_release/build_torchaudio_rocm_wheel.sh`
+    - `./tools/rocm_release/install_torchaudio_rocm_wheel_to_opt.sh`
+    - `./tools/rocm_release/install_pytorch_rocm_wheel_to_venv.sh`
+- Typical cached artifact location in the PyTorch fork:
+  - `.rocm_release/wheels/pytorch_rocm711/`
+- Promote helper there:
+  - `tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh`
   - validates:
     - `libtorch_hip.so` does not depend on `libhipblaslt`
   - reports:
@@ -173,19 +192,32 @@ the custom ROCm stack produced by this repository.
   - compatibility note:
     - consuming venvs should currently pin `numpy<2` because the wheel is built against the NumPy 1.x ABI
   - backs up the destination directory under:
-    - `build-stage2/install-backups/<timestamp>/pytorch_wheels/`
+    - `.rocm_release/install-backups/<timestamp>/pytorch_wheels/`
   - and preserves an existing target wheel as:
     - `/opt/rocm/wheels/pytorch_rocm711/<wheel>.bak_<timestamp>`
 - Project venv consumer helper:
-  - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh`
+  - `tools/rocm_release/install_pytorch_rocm_wheel_to_venv.sh`
   - default input wheel:
     - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
   - automatically installs:
     - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
+    - `/opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl`
     - when that companion wheel is present
   - writes venv-local runtime wrappers:
     - `<venv>/bin/activate_rocm_pytorch.sh`
     - `<venv>/bin/python-rocm`
+- Validation profile for the promoted wheel family:
+  - `validation/config/profiles/pytorch_rocm711_promoted.yaml`
+  - installs:
+    - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
+    - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
+    - `/opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl`
+  - removes conflicting in-tree ROCm Python SDK packages from the validation venv first
+  - validates:
+    - imports of `torch`, `torchcodec`, and `torchaudio`
+    - GPU execution with sustained conv workloads
+    - runtime source prefix `/opt/rocm`
+    - performance and power metrics in the normal validation report
 
 ### ONNX Runtime (ROCm)
 
@@ -193,10 +225,10 @@ the custom ROCm stack produced by this repository.
   - build ONNX Runtime wheel from a dedicated ORT fork/branch
   - then validate against the same ROCm stack used here
 - Build helpers in this repo:
-  - `validation/scripts/onnxruntime_rocm/build_onnxruntime_rocm_wheel.sh`
+  - `validation/scripts/onnxruntime_rocm/build_onnxruntime_rocm_wheel.sh` (TheRock integration wrapper)
   - `validation/scripts/onnxruntime_rocm/start_onnxruntime_rocm_build_systemd.sh`
   - `validation/scripts/onnxruntime_rocm/monitor_onnxruntime_rocm_build.sh`
-  - `validation/scripts/onnxruntime_rocm/install_onnxruntime_rocm_wheel_to_opt.sh`
+  - `validation/scripts/onnxruntime_rocm/install_onnxruntime_rocm_wheel_to_opt.sh` (TheRock integration wrapper)
 - Artifacts:
   - build workspace: `validation/workspace/builds/onnxruntime_rocm/`
   - wheels: `validation/workspace/cache/wheels/onnxruntime_rocm711/`
@@ -209,6 +241,16 @@ the custom ROCm stack produced by this repository.
     - `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x/releases/download/v1.22.2-rocm711-gfx1031-tlsfix1/onnxruntime_rocm-1.22.2-cp312-cp312-linux_x86_64.whl`
 - Typical promote target:
   - `/opt/rocm/wheels/onnxruntime_rocm711/`
+  - stable alias:
+    - `/opt/rocm/wheels/onnxruntime_rocm711/onnxruntime-current.whl`
+- Packaging helpers now live in the ORT fork and are the source of truth:
+  - Repo: `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x`
+  - Directory: `tools/rocm_release/`
+  - Typical local commands there:
+    - `./tools/rocm_release/build_onnxruntime_rocm_wheel.sh`
+    - `./tools/rocm_release/install_onnxruntime_rocm_wheel_to_opt.sh`
+  - Typical cached artifact location in the ORT fork:
+    - `.rocm_release/wheels/onnxruntime_rocm711/`
 - In-tree validation profile:
   - `validation/config/profiles/onnxruntime_in_tree.yaml`
   - runs:
@@ -226,6 +268,15 @@ the custom ROCm stack produced by this repository.
     - ROCm sanity
     - ONNX Runtime wheel build with `--use_migraphx`
     - ONNX Runtime inference test with `MIGraphXExecutionProvider`
+- Promoted system validation profile:
+  - `validation/config/profiles/onnxruntime_rocm711_promoted.yaml`
+  - installs from:
+    - `/opt/rocm/wheels/onnxruntime_rocm711/`
+    - stable alias: `/opt/rocm/wheels/onnxruntime_rocm711/onnxruntime-current.whl`
+  - validates:
+    - `ROCMExecutionProvider` inference
+    - runtime source prefix `/opt/rocm`
+    - throughput metrics and optional power metrics
 
 ### TensorFlow ROCm wheel
 
@@ -236,8 +287,10 @@ the custom ROCm stack produced by this repository.
   - `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`
 - Separation of concerns:
   - `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh` is now only the TheRock integration wrapper.
-  - The actual TensorFlow wheel build logic lives in the TensorFlow fork itself under:
-    - `tools/gfx1031/build_rocm_wheel.sh`
+  - The actual TensorFlow wheel packaging helpers live in the TensorFlow fork itself under:
+    - `tools/rocm_release/build_tensorflow_rocm_wheel.sh`
+    - `tools/rocm_release/install_tensorflow_rocm_wheel_to_opt.sh`
+  - `tools/gfx1031/build_rocm_wheel.sh` remains the repo-local implementation used by the release helper.
 - Artifacts:
   - build workspace: `validation/workspace/builds/tensorflow_rocm/`
   - wheels: `validation/workspace/cache/wheels/tensorflow_rocm_custom/`
@@ -245,10 +298,13 @@ the custom ROCm stack produced by this repository.
   - functional runtime venv: `validation/workspace/envs/tensorflow_rocm/`
 - Typical promote target:
   - `/opt/rocm/wheels/tensorflow_rocm_custom/`
+  - stable alias:
+    - `/opt/rocm/wheels/tensorflow_rocm_custom/tensorflow-current.whl`
 - Promote helper behavior:
   - `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`
+  - delegates to the TensorFlow fork release helper
   - backs up the current destination directory under:
-    - `build-stage2/install-backups/<timestamp>/tensorflow_wheels/`
+    - `.rocm_release/install-backups/<timestamp>/tensorflow_wheels/`
   - and also preserves an existing target wheel as:
     - `/opt/rocm/wheels/tensorflow_rocm_custom/<wheel>.bak_<timestamp>`
 - Default source config:
@@ -260,6 +316,8 @@ the custom ROCm stack produced by this repository.
   - the post-build TensorFlow matmul step installs the wheel into `validation/workspace/envs/tensorflow_rocm/`, not the shared validation venv.
   - this prevents TensorFlow-specific dependency pins from mutating unrelated validation workloads.
 - Validation profile `tensorflow` also runs a post-build TensorFlow GPU matmul benchmark and reports `tflops_est` plus the computed operation (`C=A*B` dense matmul).
+- Validation profile `tensorflow_in_tree_functional_only` reuses an already built local wheel and validates the in-tree ROCm runtime path.
+- Validation profile `tensorflow_rocm_custom_promoted` installs from `/opt/rocm/wheels/tensorflow_rocm_custom/` and validates the system ROCm runtime path (`/opt/rocm`).
 - Important boundary:
   - `validation/scripts/validate.py --profile tensorflow` remains an **in-tree ROCm** workflow.
   - a system-installed `/opt/rocm` stack is smoke-tested separately after wheel promotion, not by changing the default validation contract.

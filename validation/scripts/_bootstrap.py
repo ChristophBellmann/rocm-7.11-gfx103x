@@ -38,6 +38,7 @@ def reexec_in_venv(script_path: Path, argv: list[str]) -> int | None:
     py = ensure_venv()
     env = os.environ.copy()
     env["THEROCK_VALIDATION_BOOTSTRAPPED"] = "1"
+    env.setdefault("PYTHONPYCACHEPREFIX", str(validation_root() / "__pycache__"))
     return subprocess.call([str(py), str(script_path)] + argv, env=env)
 
 

@@ -25,6 +25,8 @@ min_s=float(os.environ.get("ROCM_VALIDATION_PYTORCH_MIN_S","5"))
 kind=os.environ.get("ROCM_VALIDATION_PYTORCH_KIND","audio")
 expect_hip=os.environ.get("ROCM_VALIDATION_PYTORCH_EXPECT_HIP_SUBSTR","").strip()
 expect_rocm=os.environ.get("ROCM_VALIDATION_PYTORCH_EXPECT_ROCM_SUBSTR","").strip()
+need_torchaudio=os.environ.get("ROCM_VALIDATION_PYTORCH_REQUIRE_TORCHAUDIO","0") == "1"
+need_torchcodec=os.environ.get("ROCM_VALIDATION_PYTORCH_REQUIRE_TORCHCODEC","0") == "1"
 
 print("torch", getattr(torch, "__version__", ""))
 print("torch.cuda.is_available", torch.cuda.is_available())
@@ -45,6 +47,22 @@ if expect_hip and (expect_hip not in str(hip_ver)):
 if expect_rocm and (expect_rocm not in str(rocm_ver)):
     print("ROCM_VERSION_MISMATCH", expect_rocm, rocm_ver)
     raise SystemExit(5)
+
+if need_torchaudio:
+    try:
+        import torchaudio
+        print("torchaudio.version", getattr(torchaudio, "__version__", ""))
+    except Exception as e:
+        print("TORCHAUDIO_IMPORT_FAILED", repr(e))
+        raise SystemExit(6)
+
+if need_torchcodec:
+    try:
+        import torchcodec
+        print("torchcodec.module", getattr(torchcodec, "__file__", ""))
+    except Exception as e:
+        print("TORCHCODEC_IMPORT_FAILED", repr(e))
+        raise SystemExit(7)
 
 dev=torch.device("cuda")
 name=torch.cuda.get_device_name(0)
@@ -158,6 +176,10 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     expect_rocm = str(wl.get("expected_rocm_substr", "") or "").strip()
     if expect_rocm:
         run_env["ROCM_VALIDATION_PYTORCH_EXPECT_ROCM_SUBSTR"] = expect_rocm
+    if bool(wl.get("require_torchaudio", False)):
+        run_env["ROCM_VALIDATION_PYTORCH_REQUIRE_TORCHAUDIO"] = "1"
+    if bool(wl.get("require_torchcodec", False)):
+        run_env["ROCM_VALIDATION_PYTORCH_REQUIRE_TORCHCODEC"] = "1"
     # Improve crash diagnostics (some ROCm/runtime mismatches can segfault).
     run_env.setdefault("PYTHONUNBUFFERED", "1")
     run_env.setdefault("PYTHONFAULTHANDLER", "1")
@@ -209,6 +231,14 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
                     f"torch.version.rocm mismatch: have={m.group(2).strip()} expected~={m.group(1).strip()}",
                 )
             return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.version.rocm mismatch")
+        if "TORCHAUDIO_IMPORT_FAILED" in out:
+            m = re.search(r"^TORCHAUDIO_IMPORT_FAILED\s+(.+)$", out, re.MULTILINE)
+            detail = m.group(1).strip() if m else "torchaudio import failed"
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), detail)
+        if "TORCHCODEC_IMPORT_FAILED" in out:
+            m = re.search(r"^TORCHCODEC_IMPORT_FAILED\s+(.+)$", out, re.MULTILINE)
+            detail = m.group(1).strip() if m else "torchcodec import failed"
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), detail)
         if r.rc < 0:
             return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"signal={-r.rc} (crash) | try workloads.pytorch.use_in_tree_rocm=false")
         return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
@@ -235,6 +265,12 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
         rocm_ver = m.group(1).strip()
         if rocm_ver and rocm_ver not in ("None", "null"):
             metric += f" rocm={rocm_ver}"
+    m = re.search(r"^torchaudio\\.version\\s+(.+)$", out, re.MULTILINE)
+    if m:
+        metric += f" torchaudio={m.group(1).strip()}"
+    m = re.search(r"^torchcodec\\.module\\s+(.+)$", out, re.MULTILINE)
+    if m:
+        metric += f" torchcodec=ok"
     m = re.search(r"^shape\s+(.+)$", out, re.MULTILINE)
     if m:
         metric += f" shape={m.group(1).strip()}"

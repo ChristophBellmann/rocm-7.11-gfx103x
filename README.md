@@ -102,7 +102,7 @@ wheel output locations and promote/install notes, are documented in:
   - `test_docker_gfx1031.sh` (host vs docker comparison)
   - `validation/` (Python “usability & workloads” validation)
   - `install_to_opt.sh` (optional: mirror dist to `/opt/rocm`)
-  - `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh` (optional: promote custom PyTorch wheel to `/opt/rocm`)
+  - `rocm-7.11-pytorch-gfx103x/tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh` (optional: promote custom PyTorch wheel to `/opt/rocm`)
 
 ## Configuration
 
@@ -219,6 +219,10 @@ Validation profiles:
 - `full`: adds representative workloads (docker/pip/build) and prompts once before downloads
 - Focused: `llama_cpp`, `ollama`, `whisper`, `mfem`, `pytorch`, `petsc`
 - PyTorch (ROCm 7.11, source build): `pytorch_rocm711_source` (builds `torch` from source against the in-tree dist under `<builddir>/dist/rocm`)
+- PyTorch (ROCm 7.11, promoted wheel family from `/opt/rocm`): `pytorch_rocm711_promoted`
+- ONNX Runtime (promoted wheel from `/opt/rocm`): `onnxruntime_rocm711_promoted`
+- TensorFlow (in-tree functional only): `tensorflow_in_tree_functional_only`
+- TensorFlow (promoted wheel from `/opt/rocm`): `tensorflow_rocm_custom_promoted`
 
 Note: the default `all` profile builds a ROCm 7.11-aligned PyTorch wheel from source to avoid accidental
 CPU fallback due to mismatched ROCm wheel channels. If you want a faster PyTorch check, use `--profile pytorch`.
@@ -383,13 +387,24 @@ cp -a /etc/OpenCL/vendors/amdocl64.icd "build-stage2/install-backups/${TS}/amdoc
 - `/opt/rocm/wheels/onnxruntime_rocm711/`
 
 TensorFlow wheel promotion is handled separately via:
-- `/opt/rocm/wheels/tensorflow_rocm_custom/` (using `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`)
+- `/opt/rocm/wheels/tensorflow_rocm_custom/`
+- source-of-truth helper in the TensorFlow fork:
+  - `tools/rocm_release/install_tensorflow_rocm_wheel_to_opt.sh`
+- TheRock integration wrapper:
+  - `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`
 
 PyTorch wheel promotion can also be done separately via:
-- `/opt/rocm/wheels/pytorch_rocm711/` (using `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh`)
+- `/opt/rocm/wheels/pytorch_rocm711/` (using `rocm-7.11-pytorch-gfx103x/tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh`)
 - stable alias maintained there:
   - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
   - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl` (optional companion wheel)
+
+ONNX Runtime wheel promotion is handled by the ORT fork:
+- repo: `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x`
+- helper dir: `tools/rocm_release/`
+- promote target: `/opt/rocm/wheels/onnxruntime_rocm711/`
+- stable alias:
+  - `/opt/rocm/wheels/onnxruntime_rocm711/onnxruntime-current.whl`
 
 System integration files written during `/opt` install:
 - `/etc/ld.so.conf.d/rocm.conf`
@@ -413,8 +428,8 @@ The helper keeps two rollback layers:
 After the in-tree PyTorch source build succeeds, promote the wheel with:
 
 ```bash
-sudo ./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh \
-  ./validation/workspace/cache/wheels/pytorch_rocm711/torch-*.whl
+cd /path/to/rocm-7.11-pytorch-gfx103x
+sudo ./tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh ./dist/torch-*.whl
 ```
 
 The helper validates the ROCm-critical runtime constraint before copying:
@@ -428,13 +443,14 @@ Current compatibility note:
 - this wheel is presently built against the NumPy 1.x ABI; use `numpy<2` in consuming venvs until the wheel is rebuilt for NumPy 2.x.
 
 It also keeps two rollback layers:
-- destination directory backup under `build-stage2/install-backups/<timestamp>/pytorch_wheels/`
+- destination directory backup under `.rocm_release/install-backups/<timestamp>/pytorch_wheels/`
 - existing target wheel copied to `/opt/rocm/wheels/pytorch_rocm711/*.bak_<timestamp>`
 
 After promotion, projects should consume the stable alias:
 - `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
 - and, if present, the companion:
   - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
+  - `/opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl`
 
 ### Build and promote the matching torchcodec companion wheel
 
@@ -446,18 +462,42 @@ After promotion, projects should consume the stable alias:
 Build the wheel in the validation cache:
 
 ```bash
-./validation/scripts/pytorch_rocm/build_torchcodec_rocm_wheel.sh --rocm-prefix /opt/rocm
+cd /path/to/rocm-7.11-pytorch-gfx103x
+./tools/rocm_release/build_torchcodec_rocm_wheel.sh --rocm-prefix /opt/rocm
 ```
 
 Promote it system-wide:
 
 ```bash
-sudo ./validation/scripts/pytorch_rocm/install_torchcodec_rocm_wheel_to_opt.sh \
-  ./validation/workspace/cache/wheels/pytorch_rocm711/torchcodec-*.whl
+sudo ./tools/rocm_release/install_torchcodec_rocm_wheel_to_opt.sh
 ```
 
 Stable alias after promotion:
 - `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
+
+### Build and promote the matching torchaudio companion wheel
+
+`torchaudio` should also be built against the exact promoted custom torch ABI.
+The stable pattern is:
+- promote `torch` to `/opt/rocm/wheels/pytorch_rocm711/`
+- build a matching `torchaudio` wheel against that exact custom torch ABI
+- promote `torchaudio` to the same directory
+
+Build the wheel in the validation cache:
+
+```bash
+cd /path/to/rocm-7.11-pytorch-gfx103x
+./tools/rocm_release/build_torchaudio_rocm_wheel.sh --rocm-prefix /opt/rocm
+```
+
+Promote it system-wide:
+
+```bash
+sudo ./tools/rocm_release/install_torchaudio_rocm_wheel_to_opt.sh
+```
+
+Stable alias after promotion:
+- `/opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl`
 
 ### System TensorFlow smoke test (`/opt/rocm`)
 
@@ -495,11 +535,24 @@ After the system wheel has been promoted to `/opt/rocm/wheels/pytorch_rocm711/`,
 install it into a project venv with:
 
 ```bash
-./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh --rocm-prefix /opt/rocm
+cd /path/to/rocm-7.11-pytorch-gfx103x
+./tools/rocm_release/install_pytorch_rocm_wheel_to_venv.sh --rocm-prefix /opt/rocm
 ```
 
-The helper now also installs `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
-automatically when that companion wheel is present.
+The helper now also installs these companion wheels automatically when present:
+- `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
+- `/opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl`
+
+To validate the promoted wheel family itself through the normal validation suite
+with perf and power metrics, run:
+
+```bash
+python3 validation/scripts/validate.py --profile pytorch_rocm711_promoted --yes --power --log
+```
+
+This promoted profile is expected to load ROCm runtime libraries from
+`/opt/rocm`, not from `build-stage2/dist/rocm`. The `torch` promote helper
+patches wheel RPATHs accordingly before installing the system copy.
 
 If the wheel is missing, build it first:
 ```bash
@@ -508,7 +561,7 @@ python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-
 
 Compatibility wrapper:
 - `./install_pytorch_rocm711.sh`
-- this now only forwards to `validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh`
+- this now forwards to the helper in the PyTorch fork checkout when available
 
 ### Build local ROCm Python packages (gfx1031) and local pip index
 
@@ -566,17 +619,20 @@ different ROCm/CUDA/CPU build), install `torch` into the project venv via the he
 
 ```bash
 python3 -m venv .venv
-./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh \
-  --venv .venv \
+cd /path/to/rocm-7.11-pytorch-gfx103x
+./tools/rocm_release/install_pytorch_rocm_wheel_to_venv.sh \
+  --venv /path/to/project/.venv \
   --rocm-prefix /opt/rocm
-. .venv/bin/activate_rocm_pytorch.sh
+. /path/to/project/.venv/bin/activate_rocm_pytorch.sh
 python -m pip install -U pip
 python -m pip install 'numpy<2' -r requirements.txt
 ```
 
 The helper resolves `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl` to the real wheel file
 before calling pip, so projects do not need to hardcode the current wheel filename.
-If available, it also resolves and installs `torchcodec-current.whl`.
+If available, it also resolves and installs:
+- `torchcodec-current.whl`
+- `torchaudio-current.whl`
 It also writes:
 - `.venv/bin/activate_rocm_pytorch.sh`
 - `.venv/bin/python-rocm`

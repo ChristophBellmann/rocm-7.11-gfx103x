@@ -1,0 +1,41 @@
+# Validate the promoted custom PyTorch ROCm 7.11 wheel family from /opt/rocm.
+#
+# This profile is the post-promote counterpart to the in-tree source-build path:
+# - install torch + torchaudio + torchcodec from /opt/rocm/wheels/pytorch_rocm711/
+# - require that the loaded ROCm runtime comes from /opt/rocm
+# - run the sustained GPU conv checks with performance and power metrics
+run:
+  profile: pytorch_rocm711_promoted
+  ask_before_downloads: false
+  downloads_enabled: true
+
+workloads:
+  pytorch:
+    auto_install: true
+    force_reinstall: true
+    uninstall_packages:
+      - "rocm"
+      - "rocm-sdk-core"
+      - "rocm-sdk-devel"
+      - "rocm-sdk-libraries-gfx1031"
+    packages:
+      - "torch @ file:///opt/rocm/wheels/pytorch_rocm711/torch-current.whl"
+      - "torchcodec @ file:///opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl"
+      - "torchaudio @ file:///opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl"
+    expected_rocm_substr: "7.11"
+    require_rocm_prefix: "/opt/rocm"
+    require_torchcodec: true
+    require_torchaudio: true
+    use_in_tree_rocm: false
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+  pytorch: true
+  petsc_hip: false
