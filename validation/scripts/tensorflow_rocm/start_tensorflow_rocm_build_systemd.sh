@@ -3,7 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 WORK_ROOT="${WORK_ROOT:-${ROOT}/validation/workspace/builds/tensorflow_rocm}"
-TF_DIR="${TF_DIR:-${WORK_ROOT}/tensorflow}"
+DEFAULT_TF_DIR="${ROOT}/validation/workspace/cache/git/tensorflow_rocm711"
+LEGACY_TF_DIR="${WORK_ROOT}/tensorflow"
+if [[ -z "${TF_DIR:-}" ]]; then
+  if [[ -e "${DEFAULT_TF_DIR}/.git" ]] || [[ ! -e "${LEGACY_TF_DIR}/.git" ]]; then
+    TF_DIR="${DEFAULT_TF_DIR}"
+  else
+    TF_DIR="${LEGACY_TF_DIR}"
+  fi
+fi
 SYSLIBS_DIR="${SYSLIBS_DIR:-${WORK_ROOT}/syslibs}"
 UNIT="${UNIT:-tensorflow-rocm-wheel-build.service}"
 LOG_FILE="${LOG_FILE:-${WORK_ROOT}/tf_build_live.log}"

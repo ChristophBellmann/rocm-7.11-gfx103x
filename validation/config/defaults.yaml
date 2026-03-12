@@ -69,8 +69,8 @@ workloads:
       # Fork URL for checkout helper. Keeps source-build lineage reproducible.
       gitrepo_origin: "https://github.com/ChristophBellmann/rocm-7.11-pytorch-gfx103x.git"
       # Cache dirs (relative to repo root unless absolute).
-      pytorch_dir: "validation/workspace/cache/git/pytorch"
-      wheels_dir: "validation/workspace/cache/wheels/pytorch"
+      pytorch_dir: "validation/workspace/cache/git/pytorch_rocm711"
+      wheels_dir: "validation/workspace/cache/wheels/pytorch_rocm711"
       pip_cache_dir: "validation/workspace/cache/pip"
       # If true, re-run checkout even if pytorch_dir already exists.
       update_checkout: false

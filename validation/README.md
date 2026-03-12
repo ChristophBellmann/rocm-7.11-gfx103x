@@ -193,6 +193,8 @@ the custom ROCm stack produced by this repository.
   - Branch: `christoph/gfx1031-buildfixes`
 - Typical wheel output:
   - `validation/workspace/cache/wheels/pytorch_rocm711/` (or configured wheel dir)
+- Preferred validation-side source checkout for the source-build helper:
+  - `validation/workspace/cache/git/pytorch_rocm711/`
 - Typical promote target:
   - `/opt/rocm/wheels/pytorch_rocm711/`
   - stable alias:
@@ -211,9 +213,9 @@ the custom ROCm stack produced by this repository.
     - `./tools/rocm_release/install_pytorch_rocm_wheel_to_venv.sh`
 - Typical cached artifact location in the PyTorch fork:
   - `.rocm_release/wheels/pytorch_rocm711/`
-- Legacy cache note:
-  - `validation/_cache` is only a compatibility symlink to `validation/workspace/cache`.
-  - New tooling must always use `validation/workspace/cache/...` directly.
+- Cache note:
+  - Use `validation/workspace/cache/...` directly.
+  - No parallel cache root under `validation/` is supported.
 - Promote helper there:
   - `tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh`
   - validates:
@@ -343,6 +345,8 @@ the custom ROCm stack produced by this repository.
   - wheels: `validation/workspace/cache/wheels/tensorflow_rocm_custom/`
   - ccache (validation TensorFlow only): `validation/workspace/cache/ccache/`
   - functional runtime venv: `validation/workspace/envs/tensorflow_rocm/`
+  - preferred fork checkout: `validation/workspace/cache/git/tensorflow_rocm711/`
+  - legacy wrapper fallback only: `validation/workspace/builds/tensorflow_rocm/tensorflow/`
 - Typical promote target:
   - `/opt/rocm/wheels/tensorflow_rocm_custom/`
   - stable alias:

@@ -2,7 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
-TF_REPO_DIR="${TF_REPO_DIR:-${ROOT}/validation/workspace/builds/tensorflow_rocm/tensorflow}"
+DEFAULT_TF_REPO_DIR="${ROOT}/validation/workspace/cache/git/tensorflow_rocm711"
+LEGACY_TF_REPO_DIR="${ROOT}/validation/workspace/builds/tensorflow_rocm/tensorflow"
+if [[ -z "${TF_REPO_DIR:-}" ]]; then
+  if [[ -e "${DEFAULT_TF_REPO_DIR}/.git" ]] || [[ ! -e "${LEGACY_TF_REPO_DIR}/.git" ]]; then
+    TF_REPO_DIR="${DEFAULT_TF_REPO_DIR}"
+  else
+    TF_REPO_DIR="${LEGACY_TF_REPO_DIR}"
+  fi
+fi
 WORK_ROOT="${WORK_ROOT:-${ROOT}/validation/workspace/builds/tensorflow_rocm}"
 IN_TREE_ROCM_PATH="${ROOT}/build-stage2/dist/rocm"
 DEFAULT_ROCM_PATH="${IN_TREE_ROCM_PATH}"
@@ -55,6 +63,7 @@ if [[ ! -d "${ROCM_PATH}" ]]; then
 fi
 
 mkdir -p "${WORK_ROOT}" "${WHEEL_OUT_DIR}" "${XDG_CACHE_HOME}" "${BAZELISK_HOME}" "${BAZEL_OUTPUT_USER_ROOT}" "${CCACHE_DIR}"
+mkdir -p "$(dirname "${TF_REPO_DIR}")"
 if [[ ! -d "${TF_REPO_DIR}/.git" ]]; then
   git clone "${TF_REPO_URL}" "${TF_REPO_DIR}"
 fi

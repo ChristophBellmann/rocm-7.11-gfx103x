@@ -200,8 +200,8 @@ def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env
     hashtag = str(sb.get("pytorch_repo_hashtag", "nightly") or "nightly").strip()
     gitrepo_origin = str(sb.get("gitrepo_origin", "") or "").strip()
 
-    pytorch_dir = _as_abs(ctx, str(sb.get("pytorch_dir", ctx.git_cache_dir() / "pytorch")))
-    wheels_dir = _as_abs(ctx, str(sb.get("wheels_dir", ctx.cache_dir() / "wheels" / "pytorch")))
+    pytorch_dir = _as_abs(ctx, str(sb.get("pytorch_dir", ctx.git_cache_dir() / "pytorch_rocm711")))
+    wheels_dir = _as_abs(ctx, str(sb.get("wheels_dir", ctx.cache_dir() / "wheels" / "pytorch_rocm711")))
     pip_cache_dir = _as_abs(ctx, str(sb.get("pip_cache_dir", ctx.cache_dir() / "pip")))
 
     update_checkout = bool(sb.get("update_checkout", False))

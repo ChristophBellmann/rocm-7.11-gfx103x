@@ -13,12 +13,13 @@ Ziel: klare Pfade, eine oeffentliche CLI, keine verdeckten Parallelstrukturen.
 - `validation/scripts/` ist interne Launcher-/Bootstrap-Implementierung, keine User-Oberflaeche.
 - Laufzeitdaten liegen nur in `validation/workspace/`.
 - Caches liegen nur in `validation/workspace/cache/`.
+- Framework-Fork-Checkouts fuer Build/Promote liegen nur in `validation/workspace/cache/git/`.
 - Build-Artefakte externer Workloads liegen nur in `validation/workspace/builds/`.
 - Reports und Logs liegen nur in `validation/workspace/runs/<run_id>/`.
 - Externe Modell-Fixtures fuer reale Framework-Diagnostik liegen nur in `validation/workspace/cache/models/`.
 - Keine neuen workload-spezifischen User-Wrapper unter `validation/scripts/` anlegen.
 - Keine Framework-Build-/Promote-Logik unter `validation/scripts/` neu einfuehren; diese gehoert in die zustaendigen Framework-Forks.
-- `validation/_cache/` ist nicht erlaubt, ausser als klar dokumentierter Legacy-Symlink auf `workspace/cache`.
+- `validation/_cache/` ist nicht erlaubt.
 
 ## 3. Oeffentliche Zielstruktur
 ```text

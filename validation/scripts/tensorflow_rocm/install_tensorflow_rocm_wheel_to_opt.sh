@@ -2,7 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
-TF_REPO_DIR="${TF_REPO_DIR:-${ROOT}/validation/workspace/builds/tensorflow_rocm/tensorflow}"
+DEFAULT_TF_REPO_DIR="${ROOT}/validation/workspace/cache/git/tensorflow_rocm711"
+LEGACY_TF_REPO_DIR="${ROOT}/validation/workspace/builds/tensorflow_rocm/tensorflow"
+if [[ -z "${TF_REPO_DIR:-}" ]]; then
+  if [[ -e "${DEFAULT_TF_REPO_DIR}/.git" ]] || [[ ! -e "${LEGACY_TF_REPO_DIR}/.git" ]]; then
+    TF_REPO_DIR="${DEFAULT_TF_REPO_DIR}"
+  else
+    TF_REPO_DIR="${LEGACY_TF_REPO_DIR}"
+  fi
+fi
 DEFAULT_SRC_DIR="${SRC_DIR:-${ROOT}/validation/workspace/cache/wheels/tensorflow_rocm_custom}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
