@@ -128,27 +128,25 @@ A correct end state for `validation/` means:
     - the primary investigation site is `validation/`, not the consumer repo
     - the real Piper failure now reproduces directly in `validation/` with a
       staged model, a real-case fixture, and a fixed seed
+    - the TTS validation is only green if the final ROCm output matches the CPU
+      reference within the configured tolerance; exception-free ROCm execution
+      alone is not sufficient
     - there is still no accepted final GPU-only fix
-    - the current real-graph diagnosis has at least two distinct ROCm-only
-      fault families:
-      - the original `/Reshape_1` crash path, whose first proven divergence is
-        already at `/dp/flows.0/Mul_1_output_0` and `/dp/flows.2/Slice_output_0`,
-        with `/dp/Split_output_0` already non-finite on ROCm
-      - a separate deterministic frozen `/dp/flows.5` path with corrupted
-        `Expand`, `GreaterOrEqual`, `ReduceSum`, `GatherND`, `GatherElements`,
-        and `ScatterND` behavior on ROCm
-    - exact node-local CPU forcing such as:
-      - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES='Expand@/dp/flows.5/Expand_15'`
-      - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES='Expand@/dp/flows.5/Expand_25'`
-      can make the local extracted subgraphs go green, but these are diagnostic
-      overrides only
-    - `ORT_ROCM_FORCE_CPU_OPS='Expand'` does not make the full real Piper TTS
-      validation pass, so `Expand` corruption is real but not the only active
-      failure in the graph
-    - standalone minimal `Expand` and `Reshape` ONNX models built from the exact
-      raw tensor values of the failing Piper subgraphs run correctly on ROCm;
-      the current best diagnosis is therefore topology-/partitioning-specific
-      ROCm EP behavior, not an isolated scalar-kernel bug
-    - isolated ROCm reduction on problematic Piper tensors can still be wrong,
-      but the reduction error is now known to be downstream of earlier ROCm-only
-      graph corruption in the full TTS path
+    - one confirmed bug family is ROCm fast reduction in the encoder
+      normalization path; `ORT_ROCM_DISABLE_FAST_REDUCTION=1` is diagnostic only
+      and must not be treated as the solution
+    - a second independent non-reduction bug remains in repeated local
+      `dp/flows.7` ramp paths even with fast reduction disabled
+    - current strongest localization of the second bug:
+      - `/dp/flows.7/Mul_10`
+      - `/dp/flows.7/Mul_16`
+      - and their downstream `Add -> CumSum -> Pad` chains
+    - later `ScatterND_*` and `GreaterOrEqual/Cast` mismatches are currently
+      treated as downstream symptoms of those faulty local ramp chains, not as
+      the first proven divergence
+    - exact isolated mini-repros from the real Piper tensors are now required
+      when a node looks suspicious:
+      - if the isolated mini-repro is green and the full graph is red, record
+        that as topology-/lifetime-/execution-order-specific ROCm EP behavior
+    - exact node-local CPU forcing can still be used to narrow the fault, but
+      must be recorded as diagnostic only and must not be committed as the fix

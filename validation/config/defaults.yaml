@@ -143,6 +143,7 @@ workloads:
     migraphx_home: "/opt/rocm"
     work_root: "validation/workspace/builds/onnxruntime_rocm"
     wheel_out_dir: "validation/workspace/cache/wheels/onnxruntime_rocm711"
+    runtime_venv_dir: "validation/workspace/envs/onnxruntime_rocm"
     do_update: true
     use_in_tree_rocm: true
     require_rocm_prefix: ""
@@ -172,6 +173,11 @@ workloads:
     # First run the same Piper ONNX graph on CPU to prove the test case/model
     # itself is valid before attributing failures to ROCm.
     tts_require_cpu_reference: true
+    # Real TTS validation is only green if ROCm matches the CPU reference within
+    # these tolerances. Shape mismatches always fail.
+    tts_require_output_match: true
+    tts_compare_rtol: 1.0e-3
+    tts_compare_atol: 1.0e-5
     # If true, fail the TTS validation as soon as MIOpen emits the workspace
     # warning seen on the current stack. Keep false until the stack issue is
     # fixed and the workload is green.

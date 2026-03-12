@@ -243,6 +243,49 @@ def _latest_wheel(wheel_dir: Path) -> Path | None:
     return wheels[0] if wheels else None
 
 
+def _resolve_repo_path(repo_root: Path, value: str | Path) -> Path:
+    p = Path(value)
+    if not p.is_absolute():
+        p = repo_root / p
+    return p
+
+
+def _onnxruntime_runtime_python(
+    ctx: Context,
+    wl: dict[str, Any],
+    env: dict[str, str],
+    log: Path | None,
+) -> tuple[str | None, str | None]:
+    venv_dir = _resolve_repo_path(
+        ctx.repo_root,
+        str(
+            wl.get(
+                "runtime_venv_dir",
+                ctx.repo_root / "validation" / "workspace" / "envs" / "onnxruntime_rocm",
+            )
+        ),
+    )
+    py = venv_dir / "bin" / "python"
+    if py.exists():
+        return str(py), None
+
+    create = run_cmd(ctx.repo_root, env, [sys.executable, "-m", "venv", str(venv_dir)], 600, log)
+    if create.rc != 0:
+        return None, f"venv create rc={create.rc}"
+
+    bootstrap = run_cmd(
+        ctx.repo_root,
+        env,
+        [str(py), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+        1800,
+        log,
+    )
+    if bootstrap.rc != 0:
+        return None, f"venv bootstrap rc={bootstrap.rc}"
+
+    return str(py), None
+
+
 def _resolve_onnxruntime_infer_inputs(ctx: Context, cfg: dict[str, Any], step_name: str) -> tuple[dict[str, Any], Path, Path] | StepResult:
     wl = cfg.get("workloads", {}).get("onnxruntime", {}) or {}
     wheel_out_dir = Path(
@@ -317,12 +360,14 @@ def _resolve_onnxruntime_tts_inputs(ctx: Context, cfg: dict[str, Any], step_name
 
 
 def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
-    py = sys.executable
     step_name = "ONNX Runtime inference (ROCm)"
     resolved = _resolve_onnxruntime_infer_inputs(ctx, cfg, step_name)
     if isinstance(resolved, StepResult):
         return StepResult(build_dir, resolved.name, resolved.status, resolved.duration, resolved.metric)
     wl, wheel, model = resolved
+    py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
+    if py is None:
+        return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
     use_in_tree = bool(wl.get("use_in_tree_rocm", True))
     run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
 
@@ -473,12 +518,14 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
 
 
 def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
-    py = sys.executable
     step_name = "ONNX Runtime Piper TTS (ROCm)"
     resolved = _resolve_onnxruntime_tts_inputs(ctx, cfg, step_name)
     if isinstance(resolved, StepResult):
         return StepResult(build_dir, resolved.name, resolved.status, resolved.duration, resolved.metric)
     wl, wheel, model, config_path = resolved
+    py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
+    if py is None:
+        return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
     use_in_tree = bool(wl.get("use_in_tree_rocm", True))
     run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
 
@@ -540,6 +587,9 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
     iters = max(1, int(wl.get("tts_iters", 4)))
     seed = int(wl.get("tts_seed", 0))
     require_cpu_reference = bool(wl.get("tts_require_cpu_reference", True))
+    require_output_match = bool(wl.get("tts_require_output_match", True))
+    compare_rtol = float(wl.get("tts_compare_rtol", 1.0e-3))
+    compare_atol = float(wl.get("tts_compare_atol", 1.0e-5))
     require_zero_miopen_warnings = bool(wl.get("tts_require_zero_miopen_workspace_warnings", False))
     timeout_s = int(cfg.get("timeouts_s", {}).get("onnxruntime_infer", 900))
     debug_dir = ctx.repo_root / "validation" / "workspace" / "debug" / "onnxruntime_tts_profiles"
@@ -628,6 +678,7 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
                 "        so.profile_file_prefix = profile_name\n"
                 "    sess = ort.InferenceSession(model, sess_options=so, providers=providers)\n"
                 "    out = {'session_providers': sess.get_providers(), 'case_results': [], 'failures': []}\n"
+                "    raw_outputs = {}\n"
                 "    t0 = time.perf_counter()\n"
                 "    for case in cases:\n"
                 "        feed = build_feed(sess, case)\n"
@@ -638,8 +689,10 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
                 "            last = None\n"
                 "            for _ in range(iters):\n"
                 "                last = sess.run(None, feed)\n"
-                "            shape = list(np.asarray(last[0]).shape) if last else []\n"
-                "            out['case_results'].append({'label': label, 'phoneme_len': int(feed['input_lengths'][0]), 'scales': case['scales'], 'output_shape': shape})\n"
+                "            arr = np.asarray(last[0], dtype=np.float32) if last else np.asarray([], dtype=np.float32)\n"
+                "            shape = list(arr.shape)\n"
+                "            out['case_results'].append({'label': label, 'phoneme_len': int(feed['input_lengths'][0]), 'scales': case['scales'], 'output_shape': shape, 'sample': arr.reshape(-1)[:16].tolist(), 'abs_mean': float(np.mean(np.abs(arr))) if arr.size else 0.0, 'mean': float(np.mean(arr)) if arr.size else 0.0, 'std': float(np.std(arr)) if arr.size else 0.0})\n"
+                "            raw_outputs[label] = arr\n"
                 "        except Exception as exc:\n"
                 "            out['failures'].append({'label': label, 'phoneme_len': int(feed['input_lengths'][0]), 'scales': case['scales'], 'error_type': type(exc).__name__, 'error': str(exc)})\n"
                 "    dt = time.perf_counter() - t0\n"
@@ -652,14 +705,39 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
                 "        profile_path = sess.end_profiling()\n"
                 "        out['profile_path'] = profile_path\n"
                 "        out['provider_events_rocm'] = provider_event_count(profile_path, 'ROCMExecutionProvider')\n"
-                "    return out\n"
+                "    return out, raw_outputs\n"
+                "def compare_case_outputs(cpu_out, cpu_raw, rocm_out, rocm_raw, *, rtol, atol):\n"
+                "    comparisons = []\n"
+                "    by_label = {str(item.get('label')): item for item in (cpu_out.get('case_results') or [])}\n"
+                "    for rocm_case in (rocm_out.get('case_results') or []):\n"
+                "        label = str(rocm_case.get('label'))\n"
+                "        cpu_case = by_label.get(label)\n"
+                "        cpu_arr = cpu_raw.get(label)\n"
+                "        rocm_arr = rocm_raw.get(label)\n"
+                "        if cpu_case is None or cpu_arr is None or rocm_arr is None:\n"
+                "            comparisons.append({'label': label, 'ok': False, 'shape_equal': False, 'allclose': False, 'reason': 'missing_cpu_or_rocm_case'})\n"
+                "            continue\n"
+                "        shape_equal = list(cpu_arr.shape) == list(rocm_arr.shape)\n"
+                "        cmp = {'label': label, 'shape_equal': shape_equal, 'cpu_shape': list(cpu_arr.shape), 'rocm_shape': list(rocm_arr.shape)}\n"
+                "        if not shape_equal:\n"
+                "            cmp.update({'allclose': False, 'ok': False, 'reason': 'shape_mismatch'})\n"
+                "            comparisons.append(cmp)\n"
+                "            continue\n"
+                "        diff = np.abs(cpu_arr - rocm_arr)\n"
+                "        cmp.update({'max_abs_diff': float(np.max(diff)) if diff.size else 0.0, 'mean_abs_diff': float(np.mean(diff)) if diff.size else 0.0, 'allclose': bool(np.allclose(cpu_arr, rocm_arr, rtol=rtol, atol=atol)), 'ok': bool(np.allclose(cpu_arr, rocm_arr, rtol=rtol, atol=atol)), 'reason': 'value_mismatch' if not bool(np.allclose(cpu_arr, rocm_arr, rtol=rtol, atol=atol)) else ''})\n"
+                "        comparisons.append(cmp)\n"
+                "    return comparisons\n"
                 "result = {\n"
                 "    'model': model,\n"
                 "    'model_config': config_path,\n"
                 "}\n"
                 "if require_cpu_reference:\n"
-                "    result['cpu'] = run_cases(['CPUExecutionProvider'], enable_profiling=False, profile_name='')\n"
-                "result['rocm'] = run_cases(['ROCMExecutionProvider', 'CPUExecutionProvider'], enable_profiling=True, profile_name=profile_prefix)\n"
+                f"    result['cpu'], cpu_raw = run_cases(['CPUExecutionProvider'], enable_profiling=False, profile_name='')\n"
+                "else:\n"
+                "    cpu_raw = {}\n"
+                f"result['rocm'], rocm_raw = run_cases(['ROCMExecutionProvider', 'CPUExecutionProvider'], enable_profiling=True, profile_name=profile_prefix)\n"
+                "if require_cpu_reference:\n"
+                f"    result['compare'] = compare_case_outputs(result['cpu'], cpu_raw, result['rocm'], rocm_raw, rtol={compare_rtol}, atol={compare_atol})\n"
                 "result['hip_lib'] = rocm_lib_hint()\n"
                 "print('ORT_TTS_RESULT_JSON=' + json.dumps(result, sort_keys=True))\n"
             ),
@@ -698,6 +776,23 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
     rocm_data = data.get("rocm") or {}
     if int(rocm_data.get("provider_events_rocm", 0)) <= 0:
         return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "no ROCMExecutionProvider events in Piper TTS ORT profile")
+
+    compare_data = data.get("compare") if require_cpu_reference else None
+    if require_cpu_reference and require_output_match:
+        if not isinstance(compare_data, list):
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "missing CPU-vs-ROCm compare data")
+        bad = [item for item in compare_data if not bool(item.get("ok"))]
+        if bad:
+            first = bad[0]
+            detail = (
+                f"ROCm Piper TTS semantic mismatch for {len(bad)}/{len(compare_data)} cases; "
+                f"first={first.get('label')} reason={first.get('reason')} "
+                f"shape_equal={first.get('shape_equal')} cpu_shape={first.get('cpu_shape')} rocm_shape={first.get('rocm_shape')}"
+            )
+            if "max_abs_diff" in first:
+                detail += f" max_abs_diff={float(first.get('max_abs_diff', 0.0)):.6g} mean_abs_diff={float(first.get('mean_abs_diff', 0.0)):.6g}"
+            detail += f" rtol={compare_rtol:.3g} atol={compare_atol:.3g}"
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), detail)
 
     hip_lib = str(data.get("hip_lib", "") or "").strip()
     profile_path = str(rocm_data.get("profile_path", "") or "").strip()
@@ -744,6 +839,9 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
     )
     if require_cpu_reference and isinstance(cpu_data, dict):
         metric += f" cpu_ok={int(cpu_data.get('ok_cases', 0))}/{int(cpu_data.get('case_count', 0))}"
+    if require_cpu_reference and isinstance(compare_data, list):
+        compare_ok = sum(1 for item in compare_data if bool(item.get("ok")))
+        metric += f" compare_ok={compare_ok}/{len(compare_data)}"
     if hip_lib:
         metric += f" hip_lib={hip_lib}"
     if profile_path:
@@ -754,12 +852,14 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
 
 
 def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
-    py = sys.executable
     step_name = "ONNX Runtime inference (MIGraphX EP)"
     resolved = _resolve_onnxruntime_infer_inputs(ctx, cfg, step_name)
     if isinstance(resolved, StepResult):
         return StepResult(build_dir, resolved.name, resolved.status, resolved.duration, resolved.metric)
     wl, wheel, model = resolved
+    py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
+    if py is None:
+        return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
     use_in_tree = bool(wl.get("use_in_tree_rocm", True))
     run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
 

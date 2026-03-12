@@ -56,11 +56,20 @@ validation/
 - Wenn promoted Validation hinzugefuegt oder geaendert wird, muss klar dokumentiert sein, welches Prefix zur Laufzeit erwartet wird.
 - Reale Modell-Diagnostik (z. B. Piper-ONNX auf ORT) darf als explizites Profil existieren, wenn der kleine Standard-Smoke die relevante Fehlerklasse nicht abdeckt.
 - Solche Realmodell-Profile sollen auch Packaging- und Runtime-Regressionsklassen abdecken, die in Mini-Smokes unsichtbar bleiben, z. B. stale Wheel-Libraries oder MIOpen-Workspace-Fehlverhalten.
+- Solche Realmodell-Profile sind nur dann gruen, wenn die GPU-Ausgabe semantisch
+  gegen eine CPU-Referenz geprueft wurde; blosses "Session lief ohne Exception"
+  ist fuer Validation nicht ausreichend.
 - Wenn fuer Realmodell-Triage temporäre ORT-Debug-Overrides noetig sind, muessen sie als explizite Umgebungsvariablen dokumentiert werden und duerfen nicht stillschweigend in den Standard-Smoke wandern.
 - Der aktuelle Piper/ORT-Diagnosepfad auf gfx1031 ist deterministisch zu halten:
   - explizites Modell
   - explizite Real-Case-Fixture
   - fester Seed
+- Wenn mehrere ROCm-Bugfamilien parallel sichtbar werden, muss die Doku den
+  aktuellen Trennstand explizit festhalten, damit spaetere Fixes nicht
+  faelschlich als "gesamtes Problem geloest" dokumentiert werden.
+- Wenn ein verdaechtiger Operator im isolierten Mini-Repro korrekt laeuft, im
+  Vollgraph aber nicht, ist das als Topologie-/Lifetime-/Execution-Order-Befund
+  zu dokumentieren und nicht vorschnell als nackter Kernel-Bug zu verbuchen.
 - Wenn ein Consumer-Repo denselben Fehler zeigt, bleibt `validation/` trotzdem
   der bevorzugte Untersuchungsort; Consumer-Repros sind nur Sekundaernachweis.
 

@@ -469,17 +469,20 @@ Reported metrics include:
 
 `onnxruntime_in_tree_tts` is the heavier diagnostic path for Piper-style TTS models.
 It is intentionally separate from the small MNIST benchmark because it exercises
-the real TTS graph shape/scales path that exposed two ROCm-only regressions that
-the small MNIST benchmark did not catch:
-- wheel packaging could stage a stale `libonnxruntime_providers_rocm.so` into the wheel
-- `miopen_conv_use_max_workspace=true` could collapse the algorithm-search workspace to `0`
-  for some Piper shapes, which produced `GemmFwdRest` MIOpen warnings during
-  `miopenFindConvolutionForwardAlgorithm(...)`
+the real TTS graph shape/scales path that exposed real ROCm-only correctness
+regressions that the small MNIST benchmark did not catch. The TTS profile is
+only green if:
+- the CPU reference passes
+- the ROCm run passes
+- `ROCMExecutionProvider` events are present
+- the final ROCm output matches the CPU reference within the configured
+  `rtol`/`atol`
 
 Current expected state for `onnxruntime_in_tree_tts` on a healthy stack:
 - CPU reference passes
 - ROCm path passes
 - `ROCMExecutionProvider` events are present
+- `compare_ok=<all>/<all>`
 - `miopen_warn=0`
 - current March 2026 real-model diagnosis also requires a fixed seed because the
   Piper graph contains `RandomNormalLike`:
@@ -492,32 +495,33 @@ Current expected state for `onnxruntime_in_tree_tts` on a healthy stack:
   are diagnostic only and must not be treated as the stack fix
 
 Current March 2026 diagnosis snapshot:
-- the old `Mul@/dp/flows.` narrowing run was useful, but it is not the target
-  solution
 - the primary investigation site is `validation/`, not the consumer repo
-- exact node forcing is now available for debug only, for example:
-  - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES='Expand@/dp/flows.5/Expand_15'`
-  - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES='Expand@/dp/flows.5/Expand_25'`
-- isolated ROCm reduction on the problematic Piper tensor shows a real kernel
-  correctness bug:
-  - `ReduceMean` and `ReduceSum` can return values that are exactly `2x` the CPU
-    result on the same `[1, 27, 192]` tensor
-  - disabling the ROCm fast-reduction path fixes that isolated repro:
-    - `ORT_ROCM_DISABLE_FAST_REDUCTION=1`
-- the real graph currently shows at least two distinct ROCm-only fault families:
-  - the original `/Reshape_1` crash path, whose first proven divergence is
-    already at `/dp/flows.0/Mul_1_output_0` and `/dp/flows.2/Slice_output_0`,
-    with `/dp/Split_output_0` already non-finite on ROCm
-  - a separate deterministic frozen `/dp/flows.5` path with corrupted
-    `Expand`, `GreaterOrEqual`, `ReduceSum`, `GatherND`, `GatherElements`, and
-    `ScatterND` behavior on ROCm
-- forcing all `Expand` ops to CPU is diagnostic only and still does not make
-  the full `onnxruntime_in_tree_tts` profile pass
-- standalone minimal `Expand` and `Reshape` ONNX models built from the exact
-  raw tensor values of the failing Piper subgraphs run correctly on ROCm
-- current best diagnosis: this is a topology-/partitioning-specific ROCm EP bug
-  in the real Piper graph, not a single isolated operator bug with the raw
-  tensor values alone
+- a dedicated ORT runtime venv is used for TTS validation:
+  - `validation/workspace/envs/onnxruntime_rocm`
+- the suite now treats semantic CPU-vs-ROCm mismatches as `FAIL`, not only hard
+  exceptions
+- there are at least two distinct ROCm-only bug families in the real Piper
+  graph:
+  - a confirmed fast-reduction correctness bug in the encoder normalization path
+    (`ReduceMean`/`ReduceSum` on ROCm can produce the wrong value for the same
+    tensor; `ORT_ROCM_DISABLE_FAST_REDUCTION=1` fixes that path diagnostically)
+  - a second independent non-reduction bug remains in repeated local
+    `dp/flows.7` ramp subgraphs even with fast reduction disabled
+- the current strongest localization of the second bug is no longer the late
+  `ScatterND_9` tail. The first proven divergences are now:
+  - `/dp/flows.7/Mul_10`
+  - `/dp/flows.7/Mul_16`
+- both faulty branches share the same structure:
+  - `Mul -> Add -> CumSum -> Pad`
+  - with later `ScatterND_*` corruption appearing downstream
+- exact isolated mini-repros built from the real full-graph inputs show that
+  `Mul_10` itself runs correctly on ROCm when isolated; this points away from a
+  bare Mul kernel bug and toward topology-/lifetime-/execution-order-specific
+  ROCm EP behavior in the real Piper graph
+- exact node forcing remains debug-only and is not an accepted solution
+- standalone minimal extracted subgraphs can run correctly on ROCm while the
+  full graph still fails; the current best diagnosis is therefore still
+  topology-/partitioning-specific ROCm EP behavior in the real Piper graph
 
 ## How the suite works
 
