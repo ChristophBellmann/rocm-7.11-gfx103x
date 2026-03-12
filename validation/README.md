@@ -153,9 +153,10 @@ python3 validation/validate.py --profile pytorch --yes --power
 python3 validation/validate.py --profile tensorflow --yes --log
 ```
 
-Explicit consumer-side repro for the real Piper failure:
+Optional secondary consumer-side repro for the real Piper failure
+(outside this repo, if a consumer checkout exists):
 ```bash
-cd /media/christoph/some_space/Compute/Mogli-Lab/wakeword
+cd <consumer-repo>
 source ./scripts/env/activate_rocm_torch_env.sh
 .venv/bin/python scripts/eval/repro_piper_onnx_provider.py \
   --model training_local/datasets/external/piper_voices/en_US-lessac-low.onnx \
@@ -184,6 +185,9 @@ the custom ROCm stack produced by this repository.
 - Primary path in this repo:
   - `validation/config/profiles/pytorch_rocm711_source.yaml`
   - `external-builds/pytorch/build_prod_wheels.py`
+- Boundary note:
+  - `external-builds/pytorch/` is the in-tree/upstream-oriented source-build helper area.
+  - It is not the source of truth for the promoted custom gfx1031 wheel family.
 - Known fork reference (for reproducibility):
   - Repo: `https://github.com/ChristophBellmann/rocm-7.11-pytorch-gfx103x`
   - Branch: `christoph/gfx1031-buildfixes`
@@ -207,6 +211,9 @@ the custom ROCm stack produced by this repository.
     - `./tools/rocm_release/install_pytorch_rocm_wheel_to_venv.sh`
 - Typical cached artifact location in the PyTorch fork:
   - `.rocm_release/wheels/pytorch_rocm711/`
+- Legacy cache note:
+  - `validation/_cache` is only a compatibility symlink to `validation/workspace/cache`.
+  - New tooling must always use `validation/workspace/cache/...` directly.
 - Promote helper there:
   - `tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh`
   - validates:

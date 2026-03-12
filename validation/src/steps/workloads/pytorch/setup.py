@@ -88,7 +88,7 @@ def _probe_torch(ctx: Context, env: dict[str, str], log: Path | None) -> tuple[i
     return 0, ver, hip, rocm
 
 
-def _resolve_package_spec(spec: str) -> str:
+def _resolve_package_spec(ctx: Context, spec: str) -> str:
     marker = " @ file://"
     if marker not in spec:
         return spec
@@ -97,14 +97,19 @@ def _resolve_package_spec(spec: str) -> str:
     if not path_text:
         return spec
 
+    base = ctx.repo_root
+    path_for_glob = path_text
+    if path_text and not Path(path_text).is_absolute():
+        path_for_glob = str(base / path_text)
+
     resolved_path: str | None = None
-    if any(ch in path_text for ch in "*?[]"):
-        matches = [Path(p) for p in glob.glob(path_text)]
+    if any(ch in path_for_glob for ch in "*?[]"):
+        matches = [Path(p) for p in glob.glob(path_for_glob)]
         if matches:
             matches.sort(key=lambda p: (p.stat().st_mtime, str(p)))
             resolved_path = str(matches[-1].resolve())
     else:
-        p = Path(path_text)
+        p = Path(path_for_glob)
         if p.exists():
             resolved_path = str(p.resolve())
 
@@ -586,7 +591,7 @@ def ensure_pytorch(
     packages = list(wl.get("packages", []) or [])
     if not packages:
         packages = ["torch", "torchvision"]
-    packages = [_resolve_package_spec(p) for p in packages]
+    packages = [_resolve_package_spec(ctx, p) for p in packages]
 
     # `pip_install` doesn't support extra args; call pip directly for flexibility.
     extra_flags: list[str] = []

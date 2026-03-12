@@ -48,9 +48,12 @@ workloads:
     require_torchaudio: false
     require_torchcodec: false
     # Optional: build and install PyTorch from source (very heavy).
-    # This uses the repo's `external-builds/pytorch/build_prod_wheels.py` tooling,
-    # which installs ROCm SDK Python packages and produces a ROCm-enabled `torch`
-    # wheel for the configured arch.
+    # This uses the repo's `external-builds/pytorch/build_prod_wheels.py` tooling.
+    # Treat that as an in-tree source-build helper only.
+    # The source of truth for promoted custom gfx1031 PyTorch-family wheels is the
+    # separate fork's `tools/rocm_release/` flow.
+    # This path installs ROCm SDK Python packages and produces a ROCm-enabled
+    # `torch` wheel for the configured arch.
     source_build:
       enabled: false
       # backend: "rocm-sdk" builds against ROCm SDK Python packages from a PEP503
@@ -73,7 +76,8 @@ workloads:
       update_checkout: false
       # If set (>0), do a shallow fetch for initial checkout.
       depth: 0
-      # Build options (see external-builds/pytorch/build_prod_wheels.py).
+      # Build options for the in-tree source-build helper
+      # (see external-builds/pytorch/build_prod_wheels.py).
       use_ccache: true
       clean: false
   llama_cpp:
