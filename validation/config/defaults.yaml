@@ -146,6 +146,36 @@ workloads:
     do_update: true
     use_in_tree_rocm: true
     require_rocm_prefix: ""
+    # Optional real TTS graph validation using a staged Piper ONNX model.
+    # Leave empty to auto-pick the newest model from
+    # validation/workspace/cache/models/onnxruntime_tts/.
+    tts_model: ""
+    # Piper sidecar config; empty => use <model>.json automatically.
+    tts_model_config: ""
+    # Optional real Piper input fixture with explicit phoneme_ids/scales, e.g.
+    # validation/fixtures/onnxruntime_tts/en_US-lessac-low.real_cases.json.
+    # Leave empty to auto-pick validation/fixtures/onnxruntime_tts/<model>.real_cases.json
+    # when present. Only falls back to synthetic phoneme lengths if no real-case
+    # fixture is available.
+    tts_case_file: ""
+    # Synthetic fallback only. Real Piper fixtures are preferred because they
+    # catch graph/runtime bugs that valid-but-artificial token sequences can miss.
+    tts_phoneme_lengths: [32]
+    # [noise_scale, length_scale, noise_w]
+    tts_scales:
+      - [0.667, 0.75, 0.8]
+      - [0.667, 1.0, 0.8]
+      - [0.667, 1.25, 0.8]
+    tts_warmup: 1
+    tts_iters: 4
+    tts_seed: 0
+    # First run the same Piper ONNX graph on CPU to prove the test case/model
+    # itself is valid before attributing failures to ROCm.
+    tts_require_cpu_reference: true
+    # If true, fail the TTS validation as soon as MIOpen emits the workspace
+    # warning seen on the current stack. Keep false until the stack issue is
+    # fixed and the workload is green.
+    tts_require_zero_miopen_workspace_warnings: false
   tensorflow:
     # Build settings for validation/src/steps/workloads/tensorflow/rocm_wheel.py
     repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"
@@ -179,6 +209,7 @@ steps:
   petsc_hip: false
   onnxruntime_rocm_wheel: false
   onnxruntime_infer: false
+  onnxruntime_tts_infer: false
   onnxruntime_migraphx_infer: false
   tensorflow_rocm_wheel: false
   tensorflow_functional: false

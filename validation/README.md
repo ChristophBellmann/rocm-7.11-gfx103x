@@ -105,8 +105,10 @@ Focused profiles:
 - PETSc: `petsc`
 - ONNX Runtime ROCm wheel build: `onnxruntime`
 - ONNX Runtime in-tree ROCm wheel + inference test: `onnxruntime_in_tree`
+- ONNX Runtime in-tree real Piper TTS graph: `onnxruntime_in_tree_tts`
 - ONNX Runtime in-tree ROCm wheel + MIGraphX EP inference test: `onnxruntime_migraphx_build`
 - ONNX Runtime promoted ROCm wheel from `/opt/rocm`: `onnxruntime_rocm711_promoted`
+- ONNX Runtime promoted real Piper TTS graph from `/opt/rocm`: `onnxruntime_rocm711_promoted_tts`
 - PyTorch GPU compute: `pytorch`
 - PyTorch in-tree ROCm enforcement: `pytorch_in_tree`
 - PyTorch ROCm 7.11 source build: `pytorch_rocm711_source`
@@ -144,9 +146,32 @@ python3 validation/validate.py --profile ollama --yes --power --log
 python3 validation/validate.py --profile petsc --yes --power --log
 python3 validation/validate.py --profile onnxruntime --yes --log
 python3 validation/validate.py --profile onnxruntime_in_tree --yes --power --log
+python3 validation/validate.py --profile onnxruntime_in_tree_tts --yes --power --log
 python3 validation/validate.py --profile onnxruntime_migraphx_build --yes --log
+python3 validation/validate.py --profile onnxruntime_rocm711_promoted_tts --yes --power --log
 python3 validation/validate.py --profile pytorch --yes --power
 python3 validation/validate.py --profile tensorflow --yes --log
+```
+
+Explicit consumer-side repro for the real Piper failure:
+```bash
+cd /media/christoph/some_space/Compute/Mogli-Lab/wakeword
+source ./scripts/env/activate_rocm_torch_env.sh
+.venv/bin/python scripts/eval/repro_piper_onnx_provider.py \
+  --model training_local/datasets/external/piper_voices/en_US-lessac-low.onnx \
+  --provider rocm \
+  --seed 0
+```
+
+Preferred structural repro stays in `validation/`:
+```bash
+python3 validation/validate.py --profile onnxruntime_in_tree_tts --yes --power --log
+```
+
+Historical narrow in-tree diagnostic override (kept only as an earlier narrowing step):
+```bash
+ORT_ROCM_FORCE_CPU_OP_NODES='Mul@/dp/flows.' \
+python3 validation/validate.py --profile onnxruntime_in_tree_tts --yes --power --log
 ```
 
 ## Custom builds against this ROCm stack
@@ -261,6 +286,23 @@ the custom ROCm stack produced by this repository.
     - provider events from ONNX Runtime profiling (`rocm_events > 0`)
     - throughput metrics (`avg_ms`, `iters_per_s`)
     - optional power metrics when `--power` is enabled
+- Real TTS graph profiles:
+  - `validation/config/profiles/onnxruntime_in_tree_tts.yaml`
+  - `validation/config/profiles/onnxruntime_rocm711_promoted_tts.yaml`
+  - expect a staged Piper ONNX model under:
+    - `validation/workspace/cache/models/onnxruntime_tts/`
+  - default behavior:
+    - pick the newest `*.onnx` from that cache directory
+    - use `<model>.onnx.json` as the sidecar config
+    - build deterministic valid phoneme-id tensors directly from the Piper config
+    - run a CPU reference first, then the same graph on `ROCMExecutionProvider`
+  - report/verify:
+    - case count and average case latency
+    - `ROCMExecutionProvider` profile events
+    - runtime source prefix (`build-stage2/dist/rocm` or `/opt/rocm`)
+    - MIOpen workspace warning count from stderr
+  - purpose:
+    - expose real Piper/ORT/MIOpen regressions that do not show up in the small `mnist.onnx` validation
 - MIGraphX EP build+validation profile:
   - `validation/config/profiles/onnxruntime_migraphx_build.yaml`
   - runs:
@@ -424,6 +466,58 @@ Reported metrics include:
 - `iters_per_s`
 - `rocm_events` (from ONNX Runtime profiling; must be > 0)
 - optional power metrics (`E`, `avgW`, `dW`, `maxW`, `gpu%`, `mem%`) with `--power`
+
+`onnxruntime_in_tree_tts` is the heavier diagnostic path for Piper-style TTS models.
+It is intentionally separate from the small MNIST benchmark because it exercises
+the real TTS graph shape/scales path that exposed two ROCm-only regressions that
+the small MNIST benchmark did not catch:
+- wheel packaging could stage a stale `libonnxruntime_providers_rocm.so` into the wheel
+- `miopen_conv_use_max_workspace=true` could collapse the algorithm-search workspace to `0`
+  for some Piper shapes, which produced `GemmFwdRest` MIOpen warnings during
+  `miopenFindConvolutionForwardAlgorithm(...)`
+
+Current expected state for `onnxruntime_in_tree_tts` on a healthy stack:
+- CPU reference passes
+- ROCm path passes
+- `ROCMExecutionProvider` events are present
+- `miopen_warn=0`
+- current March 2026 real-model diagnosis also requires a fixed seed because the
+  Piper graph contains `RandomNormalLike`:
+  - `ort.set_seed(0)`
+  - `numpy.random.seed(0)`
+- there is currently no accepted final GPU-only fix for the full real Piper TTS
+  graph on gfx1031
+- CPU fallback overrides such as:
+  - `ORT_ROCM_FORCE_CPU_OP_NODES='Mul@/dp/flows.'`
+  are diagnostic only and must not be treated as the stack fix
+
+Current March 2026 diagnosis snapshot:
+- the old `Mul@/dp/flows.` narrowing run was useful, but it is not the target
+  solution
+- the primary investigation site is `validation/`, not the consumer repo
+- exact node forcing is now available for debug only, for example:
+  - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES='Expand@/dp/flows.5/Expand_15'`
+  - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES='Expand@/dp/flows.5/Expand_25'`
+- isolated ROCm reduction on the problematic Piper tensor shows a real kernel
+  correctness bug:
+  - `ReduceMean` and `ReduceSum` can return values that are exactly `2x` the CPU
+    result on the same `[1, 27, 192]` tensor
+  - disabling the ROCm fast-reduction path fixes that isolated repro:
+    - `ORT_ROCM_DISABLE_FAST_REDUCTION=1`
+- the real graph currently shows at least two distinct ROCm-only fault families:
+  - the original `/Reshape_1` crash path, whose first proven divergence is
+    already at `/dp/flows.0/Mul_1_output_0` and `/dp/flows.2/Slice_output_0`,
+    with `/dp/Split_output_0` already non-finite on ROCm
+  - a separate deterministic frozen `/dp/flows.5` path with corrupted
+    `Expand`, `GreaterOrEqual`, `ReduceSum`, `GatherND`, `GatherElements`, and
+    `ScatterND` behavior on ROCm
+- forcing all `Expand` ops to CPU is diagnostic only and still does not make
+  the full `onnxruntime_in_tree_tts` profile pass
+- standalone minimal `Expand` and `Reshape` ONNX models built from the exact
+  raw tensor values of the failing Piper subgraphs run correctly on ROCm
+- current best diagnosis: this is a topology-/partitioning-specific ROCm EP bug
+  in the real Piper graph, not a single isolated operator bug with the raw
+  tensor values alone
 
 ## How the suite works
 

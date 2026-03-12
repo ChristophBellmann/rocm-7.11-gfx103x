@@ -5,6 +5,7 @@ description = "Repo-local validation suite for in-tree ROCm builds."
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6.0",
+  "onnx==1.20.1",
 ]
 
 [build-system]

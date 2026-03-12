@@ -274,6 +274,48 @@ def _resolve_onnxruntime_infer_inputs(ctx: Context, cfg: dict[str, Any], step_na
     return wl, wheel, model
 
 
+def _resolve_onnxruntime_tts_inputs(ctx: Context, cfg: dict[str, Any], step_name: str) -> tuple[dict[str, Any], Path, Path, Path] | StepResult:
+    wl = cfg.get("workloads", {}).get("onnxruntime", {}) or {}
+    wheel_out_dir = Path(
+        str(
+            wl.get(
+                "wheel_out_dir",
+                ctx.repo_root / "validation" / "workspace" / "cache" / "wheels" / "onnxruntime_rocm711",
+            )
+        )
+    )
+    if not wheel_out_dir.is_absolute():
+        wheel_out_dir = ctx.repo_root / wheel_out_dir
+    wheel = _latest_wheel(wheel_out_dir)
+    if wheel is None:
+        return StepResult("", step_name, "FAIL", "0ms", f"no wheel in {wheel_out_dir}")
+
+    model_cfg = str(wl.get("tts_model", "") or "").strip()
+    if model_cfg:
+        model = Path(model_cfg)
+        if not model.is_absolute():
+            model = ctx.repo_root / model
+    else:
+        model_dir = ctx.repo_root / "validation" / "workspace" / "cache" / "models" / "onnxruntime_tts"
+        models = sorted(model_dir.glob("*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True) if model_dir.is_dir() else []
+        if not models:
+            return StepResult("", step_name, "SKIP", "0ms", f"no staged Piper ONNX model in {model_dir}")
+        model = models[0]
+    if not model.is_file():
+        return StepResult("", step_name, "SKIP", "0ms", f"missing Piper ONNX model: {model}")
+
+    config_cfg = str(wl.get("tts_model_config", "") or "").strip()
+    if config_cfg:
+        config_path = Path(config_cfg)
+        if not config_path.is_absolute():
+            config_path = ctx.repo_root / config_path
+    else:
+        config_path = model.with_suffix(model.suffix + ".json")
+    if not config_path.is_file():
+        return StepResult("", step_name, "SKIP", "0ms", f"missing Piper config sidecar: {config_path}")
+    return wl, wheel, model, config_path
+
+
 def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     py = sys.executable
     step_name = "ONNX Runtime inference (ROCm)"
@@ -285,7 +327,7 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
     run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
 
     # Keep ORT import ABI-stable in this venv for custom wheel tests.
-    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<7", str(wheel)]
+    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
     r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
     if r_install.rc != 0:
         return StepResult(
@@ -430,6 +472,287 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
     )
 
 
+def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
+    py = sys.executable
+    step_name = "ONNX Runtime Piper TTS (ROCm)"
+    resolved = _resolve_onnxruntime_tts_inputs(ctx, cfg, step_name)
+    if isinstance(resolved, StepResult):
+        return StepResult(build_dir, resolved.name, resolved.status, resolved.duration, resolved.metric)
+    wl, wheel, model, config_path = resolved
+    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
+    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+
+    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
+    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
+    if r_install.rc != 0:
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
+
+    cases: list[dict[str, Any]] = []
+    case_file_cfg = str(wl.get("tts_case_file", "") or "").strip()
+    if case_file_cfg:
+        case_file = Path(case_file_cfg)
+        if not case_file.is_absolute():
+            case_file = ctx.repo_root / case_file
+    else:
+        case_file = ctx.repo_root / "validation" / "fixtures" / "onnxruntime_tts" / f"{model.stem}.real_cases.json"
+    if case_file.is_file():
+        try:
+            payload = json.loads(case_file.read_text(encoding="utf-8"))
+            loaded_cases = payload.get("cases") or []
+        except Exception as exc:
+            return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_case_file {case_file}: {exc}")
+        for case in loaded_cases:
+            try:
+                ids = [int(v) for v in (case.get("ids") or [])]
+                scale_list = [float(v) for v in (case.get("scales") or [])]
+            except Exception as exc:
+                return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid TTS case in {case_file}: {exc}")
+            if not ids:
+                return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid TTS case in {case_file}: empty ids")
+            if len(scale_list) != 3:
+                return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid TTS case in {case_file}: expected 3 floats in scales")
+            cases.append(
+                {
+                    "label": str(case.get("label") or f"ids_len={len(ids)}"),
+                    "ids": ids,
+                    "scales": scale_list,
+                }
+            )
+    else:
+        try:
+            phoneme_lengths = [max(1, int(v)) for v in (wl.get("tts_phoneme_lengths") or [32])]
+        except Exception as exc:
+            return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_phoneme_lengths: {exc}")
+        scales_cfg = wl.get("tts_scales") or [[0.667, 0.75, 0.8], [0.667, 1.0, 0.8], [0.667, 1.25, 0.8]]
+        for phoneme_len in phoneme_lengths:
+            for scales in scales_cfg:
+                try:
+                    scale_list = [float(v) for v in scales]
+                except Exception as exc:
+                    return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_scales entry {scales!r}: {exc}")
+                if len(scale_list) != 3:
+                    return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_scales entry {scales!r}: expected 3 floats")
+                cases.append({"label": f"synthetic_len={phoneme_len}", "phoneme_len": phoneme_len, "scales": scale_list})
+    if not cases:
+        return StepResult(build_dir, step_name, "FAIL", "0ms", "no Piper TTS validation cases configured")
+
+    warmup = max(0, int(wl.get("tts_warmup", 1)))
+    iters = max(1, int(wl.get("tts_iters", 4)))
+    seed = int(wl.get("tts_seed", 0))
+    require_cpu_reference = bool(wl.get("tts_require_cpu_reference", True))
+    require_zero_miopen_warnings = bool(wl.get("tts_require_zero_miopen_workspace_warnings", False))
+    timeout_s = int(cfg.get("timeouts_s", {}).get("onnxruntime_infer", 900))
+    debug_dir = ctx.repo_root / "validation" / "workspace" / "debug" / "onnxruntime_tts_profiles"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    profile_prefix = debug_dir / f"{build_dir.replace('/', '_')}_onnxruntime_tts_profile"
+
+    with tempfile.TemporaryDirectory(prefix="rocm-validation-ort-tts-") as td:
+        tdp = Path(td)
+        script = tdp / "ort_tts_infer.py"
+        script.write_text(
+            (
+                "import json\n"
+                "import os\n"
+                "import time\n"
+                "from pathlib import Path\n"
+                "import numpy as np\n"
+                "import onnxruntime as ort\n"
+                f"model = r'''{model}'''\n"
+                f"config_path = r'''{config_path}'''\n"
+                f"profile_prefix = r'''{profile_prefix}'''\n"
+                f"warmup = {warmup}\n"
+                f"iters = {iters}\n"
+                f"seed = {seed}\n"
+                f"cases = {json.dumps(cases, sort_keys=True)}\n"
+                f"require_cpu_reference = {str(require_cpu_reference)}\n"
+                "cfg = json.loads(Path(config_path).read_text(encoding='utf-8'))\n"
+                "vals = sorted({int(v) for arr in (cfg.get('phoneme_id_map') or {}).values() for v in arr})\n"
+                "vals = [v for v in vals if v >= 0]\n"
+                "if not vals:\n"
+                "    raise RuntimeError(f'no phoneme ids in Piper config: {config_path}')\n"
+                "base_vals = [v for v in vals if v > 0] or vals\n"
+                "def _dtype(type_name):\n"
+                "    if type_name == 'tensor(int64)': return np.int64\n"
+                "    if type_name == 'tensor(int32)': return np.int32\n"
+                "    if type_name == 'tensor(float)': return np.float32\n"
+                "    raise RuntimeError(f'unsupported Piper input dtype: {type_name}')\n"
+                "def build_feed(sess, case):\n"
+                "    token_ids = case.get('ids')\n"
+                "    if token_ids is None:\n"
+                "        length = int(case['phoneme_len'])\n"
+                "        reps = (length + len(base_vals) - 1) // len(base_vals)\n"
+                "        token_ids = (base_vals * reps)[:length]\n"
+                "    else:\n"
+                "        token_ids = [int(v) for v in token_ids]\n"
+                "        length = len(token_ids)\n"
+                "    seq = np.asarray([token_ids], dtype=np.int64)\n"
+                "    lens = np.asarray([length], dtype=np.int64)\n"
+                "    scales = np.asarray(case['scales'], dtype=np.float32)\n"
+                "    feed = {}\n"
+                "    for inp in sess.get_inputs():\n"
+                "        dt = _dtype(inp.type)\n"
+                "        if inp.name == 'input':\n"
+                "            feed[inp.name] = seq.astype(dt, copy=False)\n"
+                "        elif inp.name == 'input_lengths':\n"
+                "            feed[inp.name] = lens.astype(dt, copy=False)\n"
+                "        elif inp.name == 'scales':\n"
+                "            feed[inp.name] = scales.astype(dt, copy=False)\n"
+                "        elif inp.name in {'sid', 'speaker_id'}:\n"
+                "            feed[inp.name] = np.asarray([0], dtype=dt)\n"
+                "        else:\n"
+                "            raise RuntimeError(f'unsupported Piper input name: {inp.name}')\n"
+                "    return feed\n"
+                "def provider_event_count(profile_path, provider_name):\n"
+                "    with open(profile_path, 'r', encoding='utf-8') as f:\n"
+                "        return sum(1 for ev in json.load(f) if ((ev.get('args') or {}).get('provider') == provider_name))\n"
+                "def rocm_lib_hint():\n"
+                "    try:\n"
+                "        with open('/proc/self/maps', 'r', encoding='utf-8', errors='ignore') as f:\n"
+                "            libs = sorted({line.strip().split()[5] for line in f if len(line.strip().split()) >= 6 and line.strip().split()[5].startswith('/') and '.so' in line.strip().split()[5]})\n"
+                "        preferred = ('libamdhip64.so', 'libMIOpen.so', 'librocblas.so')\n"
+                "        for needle in preferred:\n"
+                "            for p in libs:\n"
+                "                base = os.path.basename(p)\n"
+                "                if base == needle or base.startswith(needle + '.'):\n"
+                "                    return p\n"
+                "    except Exception:\n"
+                "        return ''\n"
+                "    return ''\n"
+                "def run_cases(providers, *, enable_profiling, profile_name):\n"
+                "    ort.set_seed(seed)\n"
+                "    np.random.seed(seed)\n"
+                "    so = ort.SessionOptions()\n"
+                "    so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL\n"
+                "    if enable_profiling:\n"
+                "        so.enable_profiling = True\n"
+                "        so.profile_file_prefix = profile_name\n"
+                "    sess = ort.InferenceSession(model, sess_options=so, providers=providers)\n"
+                "    out = {'session_providers': sess.get_providers(), 'case_results': [], 'failures': []}\n"
+                "    t0 = time.perf_counter()\n"
+                "    for case in cases:\n"
+                "        feed = build_feed(sess, case)\n"
+                "        label = str(case.get('label') or f\"len={int(feed['input_lengths'][0])}\")\n"
+                "        try:\n"
+                "            for _ in range(warmup):\n"
+                "                sess.run(None, feed)\n"
+                "            last = None\n"
+                "            for _ in range(iters):\n"
+                "                last = sess.run(None, feed)\n"
+                "            shape = list(np.asarray(last[0]).shape) if last else []\n"
+                "            out['case_results'].append({'label': label, 'phoneme_len': int(feed['input_lengths'][0]), 'scales': case['scales'], 'output_shape': shape})\n"
+                "        except Exception as exc:\n"
+                "            out['failures'].append({'label': label, 'phoneme_len': int(feed['input_lengths'][0]), 'scales': case['scales'], 'error_type': type(exc).__name__, 'error': str(exc)})\n"
+                "    dt = time.perf_counter() - t0\n"
+                "    out['ok_cases'] = len(out['case_results'])\n"
+                "    out['failed_cases'] = len(out['failures'])\n"
+                "    out['case_count'] = len(cases)\n"
+                "    out['total_case_runs'] = len(cases) * max(iters, 1)\n"
+                "    out['avg_case_ms'] = (dt * 1000.0) / max(len(cases), 1)\n"
+                "    if enable_profiling:\n"
+                "        profile_path = sess.end_profiling()\n"
+                "        out['profile_path'] = profile_path\n"
+                "        out['provider_events_rocm'] = provider_event_count(profile_path, 'ROCMExecutionProvider')\n"
+                "    return out\n"
+                "result = {\n"
+                "    'model': model,\n"
+                "    'model_config': config_path,\n"
+                "}\n"
+                "if require_cpu_reference:\n"
+                "    result['cpu'] = run_cases(['CPUExecutionProvider'], enable_profiling=False, profile_name='')\n"
+                "result['rocm'] = run_cases(['ROCMExecutionProvider', 'CPUExecutionProvider'], enable_profiling=True, profile_name=profile_prefix)\n"
+                "result['hip_lib'] = rocm_lib_hint()\n"
+                "print('ORT_TTS_RESULT_JSON=' + json.dumps(result, sort_keys=True))\n"
+            ),
+            encoding="utf-8",
+        )
+
+        def run_tts(sampler: PowerSampler | None):
+            r = run_cmd(ctx.repo_root, run_env, [py, str(script)], timeout_s, log)
+            return r, sampler
+
+        r_tts, sampler = _with_power_sampler(ctx, cfg, build_dir, "onnxruntime_tts_infer", run_tts)
+        if r_tts.rc != 0:
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), f"tts rc={r_tts.rc}")
+
+    combined = r_tts.out + "\n" + r_tts.err
+    m = re.search(r"ORT_TTS_RESULT_JSON=(\{.*\})", combined)
+    if not m:
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "missing ORT_TTS_RESULT_JSON in output")
+    data = json.loads(m.group(1))
+    miopen_warning_count = len(re.findall(r"MIOpen\(HIP\): Warning \[IsEnoughWorkspace\]", combined))
+
+    cpu_data = data.get("cpu") if require_cpu_reference else None
+    if require_cpu_reference:
+        if not isinstance(cpu_data, dict):
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "missing CPU reference data")
+        if int(cpu_data.get("failed_cases", 0)) > 0:
+            first = (cpu_data.get("failures") or [{}])[0]
+            return StepResult(
+                build_dir,
+                step_name,
+                "FAIL",
+                fmt_duration(r_install.dur_ms + r_tts.dur_ms),
+                f"CPU reference failed for {int(cpu_data.get('failed_cases', 0))}/{int(cpu_data.get('case_count', 0))} cases; first={first.get('label') or first.get('phoneme_len')}:{first.get('scales')} {first.get('error_type')} {first.get('error')}",
+            )
+
+    rocm_data = data.get("rocm") or {}
+    if int(rocm_data.get("provider_events_rocm", 0)) <= 0:
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "no ROCMExecutionProvider events in Piper TTS ORT profile")
+
+    hip_lib = str(data.get("hip_lib", "") or "").strip()
+    profile_path = str(rocm_data.get("profile_path", "") or "").strip()
+    if int(rocm_data.get("failed_cases", 0)) > 0:
+        first = (rocm_data.get("failures") or [{}])[0]
+        detail = (
+            f"ROCm Piper TTS failed for {int(rocm_data.get('failed_cases', 0))}/{int(rocm_data.get('case_count', 0))} cases; "
+            f"first={first.get('label') or first.get('phoneme_len')}:{first.get('scales')} {first.get('error_type')} {first.get('error')}; "
+            f"rocm_events={int(rocm_data.get('provider_events_rocm', 0))}; miopen_warn={miopen_warning_count}"
+        )
+        if profile_path:
+            detail += f"; profile={profile_path}"
+        return StepResult(
+            build_dir,
+            step_name,
+            "FAIL",
+            fmt_duration(r_install.dur_ms + r_tts.dur_ms),
+            detail,
+        )
+
+    if require_zero_miopen_warnings and miopen_warning_count > 0:
+        return StepResult(
+            build_dir,
+            step_name,
+            "FAIL",
+            fmt_duration(r_install.dur_ms + r_tts.dur_ms),
+            f"MIOpen emitted workspace warnings: {miopen_warning_count}",
+        )
+
+    req = str(wl.get("require_rocm_prefix", "") or "").strip()
+    if req:
+        expected = str(rocm_dist) if req == "in-tree" else req.rstrip("/")
+        if not hip_lib:
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), f"could not determine loaded ROCm runtime lib (libamdhip64/libMIOpen/librocblas); expected prefix: {expected}")
+        if not hip_lib.startswith(expected + "/"):
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), f"ROCm runtime lib not from expected prefix: {expected}; hip_lib={hip_lib}")
+
+    metric = (
+        f"cases={int(rocm_data.get('case_count', 0))} "
+        f"rocm_ok={int(rocm_data.get('ok_cases', 0))}/{int(rocm_data.get('case_count', 0))} "
+        f"avg_case_ms={float(rocm_data.get('avg_case_ms', 0.0)):.2f} "
+        f"rocm_events={int(rocm_data.get('provider_events_rocm', 0))} "
+        f"miopen_warn={miopen_warning_count}"
+    )
+    if require_cpu_reference and isinstance(cpu_data, dict):
+        metric += f" cpu_ok={int(cpu_data.get('ok_cases', 0))}/{int(cpu_data.get('case_count', 0))}"
+    if hip_lib:
+        metric += f" hip_lib={hip_lib}"
+    if profile_path:
+        metric += f" profile={profile_path}"
+    metric += f" rocm_env={'in-tree' if use_in_tree else 'system'}"
+    metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
+    return StepResult(build_dir, step_name, "OK", fmt_duration(r_install.dur_ms + r_tts.dur_ms), metric)
+
+
 def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     py = sys.executable
     step_name = "ONNX Runtime inference (MIGraphX EP)"
@@ -441,7 +764,7 @@ def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_di
     run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
 
     # Keep ORT import ABI-stable in this venv for custom wheel tests.
-    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<7", str(wheel)]
+    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
     r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
     if r_install.rc != 0:
         return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
@@ -757,6 +1080,7 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("petsc_hip", "petsc_hip", "PETSc (HIP) build+solve", "minutes (clone/build), ~5s solve", step_petsc_hip)
     add("onnxruntime_rocm_wheel", "onnxruntime_rocm_wheel", "ONNX Runtime (ROCm) wheel build", "hours (clone/build)", step_onnxruntime_rocm_wheel)
     add("onnxruntime_infer", "onnxruntime_infer", "ONNX Runtime inference (ROCm)", "typ. ~5s (continuous)", _step_onnxruntime_infer)
+    add("onnxruntime_tts_infer", "onnxruntime_tts_infer", "ONNX Runtime Piper TTS (ROCm)", "typ. ~5s (continuous; real Piper graph)", _step_onnxruntime_tts_infer)
     add("onnxruntime_migraphx_infer", "onnxruntime_migraphx_infer", "ONNX Runtime inference (MIGraphX EP)", "typ. ~5s (continuous)", _step_onnxruntime_migraphx_infer)
     add("tensorflow_rocm_wheel", "tensorflow_rocm_wheel", "TensorFlow (ROCm) wheel build", "hours (clone/build)", step_tensorflow_rocm_wheel)
     add("tensorflow_functional", "tensorflow_matmul", "TensorFlow matmul (GPU)", "typ. ~5s (sustained)", step_tensorflow_matmul)

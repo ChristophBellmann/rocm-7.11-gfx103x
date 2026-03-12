@@ -15,6 +15,7 @@ Ziel: klare Pfade, eine oeffentliche CLI, keine verdeckten Parallelstrukturen.
 - Caches liegen nur in `validation/workspace/cache/`.
 - Build-Artefakte externer Workloads liegen nur in `validation/workspace/builds/`.
 - Reports und Logs liegen nur in `validation/workspace/runs/<run_id>/`.
+- Externe Modell-Fixtures fuer reale Framework-Diagnostik liegen nur in `validation/workspace/cache/models/`.
 - Keine neuen workload-spezifischen User-Wrapper unter `validation/scripts/` anlegen.
 - Keine Framework-Build-/Promote-Logik unter `validation/scripts/` neu einfuehren; diese gehoert in die zustaendigen Framework-Forks.
 - `validation/_cache/` ist nicht erlaubt, ausser als klar dokumentierter Legacy-Symlink auf `workspace/cache`.
@@ -53,6 +54,15 @@ validation/
 - Systemvalidierung gegen `/opt/rocm` ist nur ueber explizite `*_promoted`-Profile erlaubt.
 - `doctor` bleibt bewusst no-download und in-tree orientiert.
 - Wenn promoted Validation hinzugefuegt oder geaendert wird, muss klar dokumentiert sein, welches Prefix zur Laufzeit erwartet wird.
+- Reale Modell-Diagnostik (z. B. Piper-ONNX auf ORT) darf als explizites Profil existieren, wenn der kleine Standard-Smoke die relevante Fehlerklasse nicht abdeckt.
+- Solche Realmodell-Profile sollen auch Packaging- und Runtime-Regressionsklassen abdecken, die in Mini-Smokes unsichtbar bleiben, z. B. stale Wheel-Libraries oder MIOpen-Workspace-Fehlverhalten.
+- Wenn fuer Realmodell-Triage temporäre ORT-Debug-Overrides noetig sind, muessen sie als explizite Umgebungsvariablen dokumentiert werden und duerfen nicht stillschweigend in den Standard-Smoke wandern.
+- Der aktuelle Piper/ORT-Diagnosepfad auf gfx1031 ist deterministisch zu halten:
+  - explizites Modell
+  - explizite Real-Case-Fixture
+  - fester Seed
+- Wenn ein Consumer-Repo denselben Fehler zeigt, bleibt `validation/` trotzdem
+  der bevorzugte Untersuchungsort; Consumer-Repros sind nur Sekundaernachweis.
 
 ## 6. Drift-Regeln
 - Wenn eine neue oeffentliche Funktion noetig ist, zuerst pruefen, ob sie in `validation/validate.py` als Profil oder Option abbildbar ist.

@@ -1,4 +1,4 @@
 # Minimal, pinned runtime deps for validation scripts.
 # Install into a venv via: python -m pip install -r validation/requirements-lock.txt
 PyYAML==6.0.2
-
+onnx==1.20.1

@@ -1,0 +1,29 @@
+# Validate a staged Piper ONNX model against the locally built ONNX Runtime ROCm wheel
+# and the in-tree ROCm stack.
+run:
+  profile: onnxruntime_in_tree_tts
+  ask_before_downloads: false
+  downloads_enabled: false
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+  pytorch: false
+  petsc_hip: false
+  onnxruntime_rocm_wheel: false
+  onnxruntime_infer: false
+  onnxruntime_tts_infer: true
+  onnxruntime_migraphx_infer: false
+  tensorflow_rocm_wheel: false
+
+workloads:
+  onnxruntime:
+    rocm_path: "build-stage2/dist/rocm"
+    use_in_tree_rocm: true
+    require_rocm_prefix: "in-tree"
