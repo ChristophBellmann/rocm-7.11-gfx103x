@@ -250,6 +250,329 @@ def _resolve_repo_path(repo_root: Path, value: str | Path) -> Path:
     return p
 
 
+def _onnxruntime_tts_model_dir(ctx: Context) -> Path:
+    return ctx.repo_root / "validation" / "workspace" / "cache" / "models" / "onnxruntime_tts"
+
+
+def _ensure_onnxruntime_tts_staged_file(ctx: Context, value: str | Path, *, kind: str) -> Path:
+    staged_dir = _onnxruntime_tts_model_dir(ctx)
+    path = _resolve_repo_path(ctx.repo_root, value)
+    if path.is_symlink():
+        raise ValueError(f"{kind} must be copied into {staged_dir}, not symlinked: {path}")
+    resolved = path.resolve(strict=False)
+    try:
+        resolved.relative_to(staged_dir.resolve())
+    except ValueError as exc:
+        raise ValueError(f"{kind} must live under {staged_dir}; external paths are not supported: {path}") from exc
+    return path
+
+
+def _staged_onnxruntime_tts_models(ctx: Context) -> list[Path]:
+    model_dir = _onnxruntime_tts_model_dir(ctx)
+    if not model_dir.is_dir():
+        return []
+    return sorted(
+        (p for p in model_dir.glob("*.onnx") if p.is_file() and not p.is_symlink()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+
+_ORT_TTS_SHAPE_DIAG_OUTPUTS = [
+    "output",
+    "/dp/Split_output_0",
+    "/Exp_output_0",
+    "/Mul_output_0",
+    "/Mul_1_output_0",
+    "/Ceil_output_0",
+    "/Cast_output_0",
+    "/CumSum_output_0",
+    "/Reshape_1_output_0",
+    "/dp/flows.5/Expand_15_output_0",
+    "/dp/flows.5/Reshape_16_output_0",
+    "/dp/flows.7/Mul_10_output_0",
+    "/dp/flows.7/Mul_16_output_0",
+]
+
+
+def _sanitize_artifact_name(text: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9._-]+", "_", text.strip())
+    return clean.strip("._-") or "case"
+
+
+def _cfg_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (list, tuple)):
+        out: list[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                out.append(text)
+        return out
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _candidate_onnxruntime_tts_diag_pythons(ctx: Context, runtime_py: str) -> list[str]:
+    candidates = [
+        runtime_py,
+        str(ctx.workspace_root / "envs" / "py" / "bin" / "python"),
+    ]
+    seen: set[str] = set()
+    out: list[str] = []
+    for cand in candidates:
+        if cand and cand not in seen and Path(cand).is_file():
+            seen.add(cand)
+            out.append(cand)
+    return out
+
+
+def _python_supports_onnxruntime_tts_diag(ctx: Context, run_env: dict[str, str], python: str, log: Path | None) -> bool:
+    probe = run_cmd(
+        ctx.repo_root,
+        run_env,
+        [
+            python,
+            "-c",
+            "import onnx, onnxruntime as ort; assert 'CPUExecutionProvider' in ort.get_available_providers()",
+        ],
+        60,
+        log,
+    )
+    return probe.rc == 0
+
+
+def _resolve_onnxruntime_tts_diag_python(
+    ctx: Context,
+    run_env: dict[str, str],
+    runtime_py: str,
+    log: Path | None,
+) -> str | None:
+    for cand in _candidate_onnxruntime_tts_diag_pythons(ctx, runtime_py):
+        if _python_supports_onnxruntime_tts_diag(ctx, run_env, cand, log):
+            return cand
+    return None
+
+
+def _shape_diag_scalar(item: dict[str, Any] | None, key: str) -> int | float | None:
+    if not isinstance(item, dict):
+        return None
+    values = item.get(key)
+    if not isinstance(values, list) or not values:
+        return None
+    value = values[0]
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return value
+    return None
+
+
+def _shape_diag_last_dim(item: dict[str, Any] | None, key: str) -> int | None:
+    if not isinstance(item, dict):
+        return None
+    shape = item.get(key)
+    if not isinstance(shape, list) or not shape:
+        return None
+    last = shape[-1]
+    return int(last) if isinstance(last, int) else None
+
+
+def _fmt_shape_diag_number(value: int | float | None) -> str:
+    if value is None:
+        return "?"
+    if isinstance(value, int):
+        return str(value)
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{float(value):.4g}"
+
+
+def _summarize_onnxruntime_tts_exact_chain(data: dict[str, Any]) -> str:
+    exact = data.get("exact_chain_repro")
+    if not isinstance(exact, dict):
+        return ""
+    boundary_cmp = exact.get("full_boundary_compare") or {}
+    mini_cmp = exact.get("mini_cpu_boundary_compare") or {}
+    parts = []
+    first_boundary = str(boundary_cmp.get("first_mismatch") or "").strip()
+    if first_boundary:
+        parts.append(f"boundary_first={first_boundary}")
+    boundary_count = boundary_cmp.get("mismatch_count")
+    if isinstance(boundary_count, int):
+        parts.append(f"boundary_mismatch={boundary_count}")
+    mini_count = mini_cmp.get("mismatch_count")
+    if isinstance(mini_count, int):
+        if mini_count == 0:
+            parts.append("mini=green")
+        else:
+            first_mini = str(mini_cmp.get("first_mismatch") or "").strip()
+            if first_mini:
+                parts.append(f"mini_first={first_mini}")
+            else:
+                parts.append(f"mini_mismatch={mini_count}")
+    return " ".join(parts)
+
+
+def _summarize_onnxruntime_tts_shape_diag(data: dict[str, Any]) -> str:
+    cmp = data.get("comparison") or {}
+    mismatches = cmp.get("mismatches") or []
+    by_name = {str(item.get("name")): item for item in mismatches if isinstance(item, dict)}
+    output = by_name.get("output")
+    split0 = by_name.get("/dp/Split_output_0")
+    ceil0 = by_name.get("/Ceil_output_0")
+    cast0 = by_name.get("/Cast_output_0")
+    expand15 = by_name.get("/dp/flows.5/Expand_15_output_0")
+    mul10 = by_name.get("/dp/flows.7/Mul_10_output_0")
+    mul16 = by_name.get("/dp/flows.7/Mul_16_output_0")
+    parts = []
+    first_nan = str(cmp.get("first_rocm_nan") or "").strip()
+    if first_nan:
+        parts.append(f"first_nan={first_nan}")
+    out_cpu = _shape_diag_last_dim(output, "cpu_shape")
+    out_rocm = _shape_diag_last_dim(output, "rocm_shape")
+    if out_cpu is not None or out_rocm is not None:
+        parts.append(f"len={_fmt_shape_diag_number(out_cpu)}->{_fmt_shape_diag_number(out_rocm)}")
+    cast_cpu = _shape_diag_scalar(cast0, "cpu_sample")
+    cast_rocm = _shape_diag_scalar(cast0, "rocm_sample")
+    if cast_cpu is not None or cast_rocm is not None:
+        parts.append(f"cast={_fmt_shape_diag_number(cast_cpu)}->{_fmt_shape_diag_number(cast_rocm)}")
+    split_cpu = _shape_diag_scalar(split0, "cpu_sample")
+    split_rocm = _shape_diag_scalar(split0, "rocm_sample")
+    if split_cpu is not None or split_rocm is not None:
+        parts.append(f"split0={_fmt_shape_diag_number(split_cpu)}->{_fmt_shape_diag_number(split_rocm)}")
+    ceil_cpu = _shape_diag_scalar(ceil0, "cpu_sample")
+    ceil_rocm = _shape_diag_scalar(ceil0, "rocm_sample")
+    if ceil_cpu is not None or ceil_rocm is not None:
+        parts.append(f"ceil0={_fmt_shape_diag_number(ceil_cpu)}->{_fmt_shape_diag_number(ceil_rocm)}")
+    expand_cpu = _shape_diag_scalar(expand15, "cpu_sample")
+    expand_rocm = _shape_diag_scalar(expand15, "rocm_sample")
+    if expand_cpu is not None or expand_rocm is not None:
+        parts.append(f"flow5_expand15={_fmt_shape_diag_number(expand_cpu)}->{_fmt_shape_diag_number(expand_rocm)}")
+    mul10_cpu = _shape_diag_scalar(mul10, "cpu_sample")
+    mul10_rocm = _shape_diag_scalar(mul10, "rocm_sample")
+    if mul10_cpu is not None or mul10_rocm is not None:
+        parts.append(f"flow7_mul10={_fmt_shape_diag_number(mul10_cpu)}->{_fmt_shape_diag_number(mul10_rocm)}")
+    mul16_cpu = _shape_diag_scalar(mul16, "cpu_sample")
+    mul16_rocm = _shape_diag_scalar(mul16, "rocm_sample")
+    if mul16_cpu is not None or mul16_rocm is not None:
+        parts.append(f"flow7_mul16={_fmt_shape_diag_number(mul16_cpu)}->{_fmt_shape_diag_number(mul16_rocm)}")
+    exact = _summarize_onnxruntime_tts_exact_chain(data)
+    if exact:
+        parts.append(exact)
+    return " ".join(parts)
+
+
+def _run_onnxruntime_tts_shape_diagnostics(
+    ctx: Context,
+    wl: dict[str, Any],
+    run_env: dict[str, str],
+    runtime_py: str,
+    model: Path,
+    case_file: Path,
+    case_label: str,
+    log: Path | None,
+) -> str:
+    diag_py = _resolve_onnxruntime_tts_diag_python(ctx, run_env, runtime_py, log)
+    if diag_py is None:
+        return "shape_diag=skip(no python with onnx+onnxruntime)"
+
+    timeout_s = max(60, int(wl.get("tts_shape_diag_timeout_s", 240)))
+    diag_script = ctx.repo_root / "validation" / "src" / "steps" / "workloads" / "onnxruntime" / "piper_tts_debug.py"
+    slug = _sanitize_artifact_name(case_label)
+    diag_dir = ctx.run_root / "artifacts"
+    diag_dir.mkdir(parents=True, exist_ok=True)
+    runs = [("current", False), ("nofast", True)]
+    summaries: list[str] = []
+    artifacts: list[str] = []
+    for name, disable_fast in runs:
+        out_json = diag_dir / f"onnxruntime_tts_shape_diag_{slug}_{name}.json"
+        exact_dir = diag_dir / f"onnxruntime_tts_shape_diag_{slug}_{name}_exact_chain"
+        cmd = [
+            diag_py,
+            str(diag_script),
+            "--model",
+            str(model),
+            "--case-file",
+            str(case_file),
+            "--case-label",
+            case_label,
+            "--graph-mode",
+            "full",
+            "--opt-level",
+            "disable",
+            "--exact-chain-repro",
+            "dp_shape_cast",
+            "--artifact-dir",
+            str(exact_dir),
+            "--out-json",
+            str(out_json),
+        ]
+        if disable_fast:
+            cmd.append("--disable-fast-reduction")
+        for output_name in _ORT_TTS_SHAPE_DIAG_OUTPUTS:
+            cmd.extend(["--output", output_name])
+        result = run_cmd(ctx.repo_root, run_env, cmd, timeout_s, log)
+        if result.rc != 0:
+            summaries.append(f"{name}=diag_rc{result.rc}")
+            continue
+        try:
+            payload = json.loads(out_json.read_text(encoding="utf-8"))
+        except Exception:
+            summaries.append(f"{name}=diag_parse_error")
+            continue
+        summaries.append(f"{name}[{_summarize_onnxruntime_tts_shape_diag(payload)}]")
+        artifacts.append(out_json.name)
+        exact = payload.get("exact_chain_repro")
+        if isinstance(exact, dict):
+            report_json = str(exact.get("report_json") or "").strip()
+            if report_json:
+                report_path = Path(report_json)
+                try:
+                    rel = report_path.resolve().relative_to(diag_dir.resolve())
+                    artifacts.append(str(rel))
+                except Exception:
+                    artifacts.append(report_path.name)
+    if artifacts:
+        return f"shape_diag {' '.join(summaries)} artifacts={','.join(artifacts)}"
+    return f"shape_diag {' '.join(summaries)}"
+
+
+def _onnxruntime_tts_case_file(ctx: Context, wl: dict[str, Any], model: Path) -> Path:
+    case_file_cfg = str(wl.get("tts_case_file", "") or "").strip()
+    if case_file_cfg:
+        return _resolve_repo_path(ctx.repo_root, case_file_cfg)
+    return ctx.repo_root / "validation" / "fixtures" / "onnxruntime_tts" / f"{model.stem}.real_cases.json"
+
+
+def _summarize_onnxruntime_tts_flow_probe(data: dict[str, Any]) -> str:
+    cmp = data.get("comparison") or {}
+    exact = data.get("exact_chain_repro") or {}
+    parts: list[str] = []
+    preset = str((exact.get("preset") or data.get("preset") or "")).strip()
+    if preset:
+        parts.append(f"preset={preset}")
+    if bool(data.get("freeze_dp_random_zeros", False)):
+        parts.append("freeze=1")
+    mismatch_count = cmp.get("mismatch_count")
+    if isinstance(mismatch_count, int):
+        parts.append(f"mismatch={mismatch_count}")
+    first = str(cmp.get("first_mismatch") or "").strip()
+    if first:
+        parts.append(f"first={first}")
+    first_nan = str(cmp.get("first_rocm_nan") or "").strip()
+    if first_nan:
+        parts.append(f"first_nan={first_nan}")
+    exact_summary = _summarize_onnxruntime_tts_exact_chain(data)
+    if exact_summary:
+        parts.append(exact_summary)
+    return " ".join(parts)
+
+
 def _onnxruntime_runtime_python(
     ctx: Context,
     wl: dict[str, Any],
@@ -335,13 +658,24 @@ def _resolve_onnxruntime_tts_inputs(ctx: Context, cfg: dict[str, Any], step_name
 
     model_cfg = str(wl.get("tts_model", "") or "").strip()
     if model_cfg:
-        model = Path(model_cfg)
-        if not model.is_absolute():
-            model = ctx.repo_root / model
+        try:
+            model = _ensure_onnxruntime_tts_staged_file(ctx, model_cfg, kind="Piper ONNX model")
+        except ValueError as exc:
+            return StepResult("", step_name, "SKIP", "0ms", str(exc))
     else:
-        model_dir = ctx.repo_root / "validation" / "workspace" / "cache" / "models" / "onnxruntime_tts"
-        models = sorted(model_dir.glob("*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True) if model_dir.is_dir() else []
+        model_dir = _onnxruntime_tts_model_dir(ctx)
+        models = _staged_onnxruntime_tts_models(ctx)
         if not models:
+            symlinked = sorted(model_dir.glob("*.onnx"), key=lambda p: p.name) if model_dir.is_dir() else []
+            first_symlink = next((p for p in symlinked if p.is_symlink()), None)
+            if first_symlink is not None:
+                return StepResult(
+                    "",
+                    step_name,
+                    "SKIP",
+                    "0ms",
+                    f"no local staged Piper ONNX model in {model_dir}; replace symlink with copied file: {first_symlink.name}",
+                )
             return StepResult("", step_name, "SKIP", "0ms", f"no staged Piper ONNX model in {model_dir}")
         model = models[0]
     if not model.is_file():
@@ -349,14 +683,189 @@ def _resolve_onnxruntime_tts_inputs(ctx: Context, cfg: dict[str, Any], step_name
 
     config_cfg = str(wl.get("tts_model_config", "") or "").strip()
     if config_cfg:
-        config_path = Path(config_cfg)
-        if not config_path.is_absolute():
-            config_path = ctx.repo_root / config_path
+        try:
+            config_path = _ensure_onnxruntime_tts_staged_file(ctx, config_cfg, kind="Piper config sidecar")
+        except ValueError as exc:
+            return StepResult("", step_name, "SKIP", "0ms", str(exc))
     else:
         config_path = model.with_suffix(model.suffix + ".json")
+        try:
+            config_path = _ensure_onnxruntime_tts_staged_file(ctx, config_path, kind="Piper config sidecar")
+        except ValueError as exc:
+            return StepResult("", step_name, "SKIP", "0ms", str(exc))
     if not config_path.is_file():
         return StepResult("", step_name, "SKIP", "0ms", f"missing Piper config sidecar: {config_path}")
     return wl, wheel, model, config_path
+
+
+def _step_onnxruntime_tts_flow_probe(
+    ctx: Context,
+    cfg: dict[str, Any],
+    build_dir: str,
+    rocm_dist: Path,
+    env: dict[str, str],
+    log: Path | None,
+) -> StepResult:
+    step_name = "ONNX Runtime Piper TTS Flow Probe (ROCm)"
+    resolved = _resolve_onnxruntime_tts_inputs(ctx, cfg, step_name)
+    if isinstance(resolved, StepResult):
+        return StepResult(build_dir, resolved.name, resolved.status, resolved.duration, resolved.metric)
+    wl, wheel, model, _config_path = resolved
+    py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
+    if py is None:
+        return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
+    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
+    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+
+    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
+    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
+    if r_install.rc != 0:
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
+
+    diag_py = _resolve_onnxruntime_tts_diag_python(ctx, run_env, py, log)
+    if diag_py is None:
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), "no python with onnx+onnxruntime for flow probe")
+
+    case_file = _onnxruntime_tts_case_file(ctx, wl, model)
+    if not case_file.is_file():
+        return StepResult(build_dir, step_name, "FAIL", "0ms", f"missing real-case fixture for flow probe: {case_file}")
+
+    case_label = str(wl.get("tts_flow_probe_case_label", "mogli") or "").strip()
+    preset = str(wl.get("tts_flow_probe_preset", "dp_flow3_branch") or "").strip()
+    graph_mode = str(wl.get("tts_flow_probe_graph_mode", "full") or "full").strip()
+    opt_level = str(wl.get("tts_flow_probe_opt_level", "disable") or "disable").strip()
+    outputs = _cfg_string_list(wl.get("tts_flow_probe_outputs"))
+    node_prefixes = _cfg_string_list(wl.get("tts_flow_probe_node_prefixes"))
+    node_names = _cfg_string_list(wl.get("tts_flow_probe_node_names"))
+    rocm_provider_options = _cfg_string_list(wl.get("tts_flow_probe_rocm_provider_options"))
+    freeze_dp_random_zeros = bool(wl.get("tts_flow_probe_freeze_dp_random_zeros", False))
+    extract_per_output = bool(wl.get("tts_flow_probe_extract_per_output", False))
+    run_nofast = bool(wl.get("tts_flow_probe_run_nofast", True))
+    chunk_size = max(0, int(wl.get("tts_flow_probe_chunk_size", 0)))
+    max_report = max(1, int(wl.get("tts_flow_probe_max_report", 30)))
+    timeout_s = max(
+        60,
+        int(
+            cfg.get("timeouts_s", {}).get(
+                "onnxruntime_tts_flow_probe",
+                wl.get("tts_flow_probe_timeout_s", 300),
+            )
+        ),
+    )
+    if not preset and not outputs and not node_prefixes and not node_names:
+        return StepResult(build_dir, step_name, "FAIL", "0ms", "flow probe needs tts_flow_probe_preset or explicit outputs/node selectors")
+
+    diag_dir = ctx.run_root / "artifacts"
+    diag_dir.mkdir(parents=True, exist_ok=True)
+    diag_script = ctx.repo_root / "validation" / "src" / "steps" / "workloads" / "onnxruntime" / "piper_tts_debug.py"
+    slug = _sanitize_artifact_name(case_label or "case")
+    runs = [("current", False)]
+    if run_nofast:
+        runs.append(("nofast", True))
+
+    summaries: list[str] = []
+    artifacts: list[str] = []
+    total_dur_ms = r_install.dur_ms
+    for name, disable_fast in runs:
+        out_json = diag_dir / f"onnxruntime_tts_flow_probe_{slug}_{name}.json"
+        exact_dir = diag_dir / f"onnxruntime_tts_flow_probe_{slug}_{name}_exact_chain"
+        cmd = [
+            diag_py,
+            str(diag_script),
+            "--model",
+            str(model),
+            "--case-file",
+            str(case_file),
+            "--graph-mode",
+            graph_mode,
+            "--opt-level",
+            opt_level,
+            "--chunk-size",
+            str(chunk_size),
+            "--max-report",
+            str(max_report),
+            "--out-json",
+            str(out_json),
+        ]
+        if case_label:
+            cmd.extend(["--case-label", case_label])
+        if preset:
+            cmd.extend(["--exact-chain-repro", preset, "--artifact-dir", str(exact_dir)])
+        if disable_fast:
+            cmd.append("--disable-fast-reduction")
+        if freeze_dp_random_zeros:
+            cmd.append("--freeze-dp-random-zeros")
+        if extract_per_output:
+            cmd.append("--extract-per-output")
+        for output_name in outputs:
+            cmd.extend(["--output", output_name])
+        for node_prefix in node_prefixes:
+            cmd.extend(["--node-prefix", node_prefix])
+        for node_name in node_names:
+            cmd.extend(["--node-name", node_name])
+        for item in rocm_provider_options:
+            cmd.extend(["--rocm-provider-option", item])
+        result = run_cmd(ctx.repo_root, run_env, cmd, timeout_s, log)
+        total_dur_ms += result.dur_ms
+        if result.rc != 0:
+            return StepResult(
+                build_dir,
+                step_name,
+                "FAIL",
+                fmt_duration(total_dur_ms),
+                f"flow_probe {name} rc={result.rc}",
+            )
+        try:
+            payload = json.loads(out_json.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return StepResult(
+                build_dir,
+                step_name,
+                "FAIL",
+                fmt_duration(total_dur_ms),
+                f"flow_probe {name} parse_error={exc}",
+            )
+        summaries.append(f"{name}[{_summarize_onnxruntime_tts_flow_probe(payload)}]")
+        artifacts.append(out_json.name)
+        exact = payload.get("exact_chain_repro")
+        if isinstance(exact, dict):
+            report_json = str(exact.get("report_json") or "").strip()
+            if report_json:
+                report_path = Path(report_json)
+                try:
+                    rel = report_path.resolve().relative_to(diag_dir.resolve())
+                    artifacts.append(str(rel))
+                except Exception:
+                    artifacts.append(report_path.name)
+
+    req = str(wl.get("require_rocm_prefix", "") or "").strip()
+    if req:
+        rocm_hint = ""
+        for artifact in artifacts:
+            if not artifact.endswith(".json"):
+                continue
+            try:
+                payload = json.loads((diag_dir / artifact).read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            rocm_hint = str(payload.get("hip_lib") or "").strip()
+            if rocm_hint:
+                break
+        expected = str(rocm_dist) if req == "in-tree" else req.rstrip("/")
+        if rocm_hint and not rocm_hint.startswith(expected + "/"):
+            return StepResult(
+                build_dir,
+                step_name,
+                "FAIL",
+                fmt_duration(total_dur_ms),
+                f"ROCm runtime lib not from expected prefix: {expected}; hip_lib={rocm_hint}",
+            )
+
+    metric = " ".join(summaries)
+    if artifacts:
+        metric += f" artifacts={','.join(artifacts)}"
+    metric += f" rocm_env={'in-tree' if use_in_tree else 'system'}"
+    return StepResult(build_dir, step_name, "OK", fmt_duration(total_dur_ms), metric)
 
 
 def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
@@ -792,6 +1301,21 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
             if "max_abs_diff" in first:
                 detail += f" max_abs_diff={float(first.get('max_abs_diff', 0.0)):.6g} mean_abs_diff={float(first.get('mean_abs_diff', 0.0)):.6g}"
             detail += f" rtol={compare_rtol:.3g} atol={compare_atol:.3g}"
+            if bool(wl.get("tts_shape_diagnose_on_shape_mismatch", True)) and str(first.get("reason") or "") == "shape_mismatch" and case_file.is_file():
+                case_label = str(first.get("label") or "").strip()
+                if case_label:
+                    diag = _run_onnxruntime_tts_shape_diagnostics(
+                        ctx,
+                        wl,
+                        run_env,
+                        py,
+                        model,
+                        case_file,
+                        case_label,
+                        log,
+                    )
+                    if diag:
+                        detail += f"; {diag}"
             return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), detail)
 
     hip_lib = str(data.get("hip_lib", "") or "").strip()
@@ -1181,6 +1705,7 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("onnxruntime_rocm_wheel", "onnxruntime_rocm_wheel", "ONNX Runtime (ROCm) wheel build", "hours (clone/build)", step_onnxruntime_rocm_wheel)
     add("onnxruntime_infer", "onnxruntime_infer", "ONNX Runtime inference (ROCm)", "typ. ~5s (continuous)", _step_onnxruntime_infer)
     add("onnxruntime_tts_infer", "onnxruntime_tts_infer", "ONNX Runtime Piper TTS (ROCm)", "typ. ~5s (continuous; real Piper graph)", _step_onnxruntime_tts_infer)
+    add("onnxruntime_tts_flow_probe", "onnxruntime_tts_flow_probe", "ONNX Runtime Piper TTS Flow Probe (ROCm)", "typ. ~10-60s (diagnostic subgraph repro)", _step_onnxruntime_tts_flow_probe)
     add("onnxruntime_migraphx_infer", "onnxruntime_migraphx_infer", "ONNX Runtime inference (MIGraphX EP)", "typ. ~5s (continuous)", _step_onnxruntime_migraphx_infer)
     add("tensorflow_rocm_wheel", "tensorflow_rocm_wheel", "TensorFlow (ROCm) wheel build", "hours (clone/build)", step_tensorflow_rocm_wheel)
     add("tensorflow_functional", "tensorflow_matmul", "TensorFlow matmul (GPU)", "typ. ~5s (sustained)", step_tensorflow_matmul)

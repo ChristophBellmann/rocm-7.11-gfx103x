@@ -300,6 +300,9 @@ the custom ROCm stack produced by this repository.
   - `validation/config/profiles/onnxruntime_rocm711_promoted_tts.yaml`
   - expect a staged Piper ONNX model under:
     - `validation/workspace/cache/models/onnxruntime_tts/`
+  - the staged model and sidecar must be real files inside that cache dir:
+    - copy them there
+    - do not symlink to a consumer checkout such as `Mogli-Lab`
   - default behavior:
     - pick the newest `*.onnx` from that cache directory
     - use `<model>.onnx.json` as the sidecar config
@@ -488,6 +491,13 @@ only green if:
 - `ROCMExecutionProvider` events are present
 - the final ROCm output matches the CPU reference within the configured
   `rtol`/`atol`
+- on shape mismatches, validation now writes focused node-level JSON diagnostics
+  under the current run directory:
+  - `validation/workspace/runs/<run_id>/artifacts/onnxruntime_tts_shape_diag_<case>_current.json`
+  - `validation/workspace/runs/<run_id>/artifacts/onnxruntime_tts_shape_diag_<case>_nofast.json`
+  - exact-chain artifacts under
+    `validation/workspace/runs/<run_id>/artifacts/onnxruntime_tts_shape_diag_<case>_<mode>_exact_chain/`
+    including `dp_shape_cast.report.json`
 
 Current expected state for `onnxruntime_in_tree_tts` on a healthy stack:
 - CPU reference passes
@@ -499,6 +509,8 @@ Current expected state for `onnxruntime_in_tree_tts` on a healthy stack:
   Piper graph contains `RandomNormalLike`:
   - `ort.set_seed(0)`
   - `numpy.random.seed(0)`
+  - for exact flow-probe work, freeze `/dp/RandomNormalLike` to zeros so the
+    probe follows deterministic ROCm bugs instead of provider-local RNG drift
 - there is currently no accepted final GPU-only fix for the full real Piper TTS
   graph on gfx1031
 - CPU fallback overrides such as:
@@ -518,17 +530,55 @@ Current March 2026 diagnosis snapshot:
     tensor; `ORT_ROCM_DISABLE_FAST_REDUCTION=1` fixes that path diagnostically)
   - a second independent non-reduction bug remains in repeated local
     `dp/flows.7` ramp subgraphs even with fast reduction disabled
-- the current strongest localization of the second bug is no longer the late
-  `ScatterND_9` tail. The first proven divergences are now:
+- current March 2026 shape-path diagnosis for the local staged Lessac model:
+  - the first shape-driving divergence can already appear in the top-level
+    `/dp/Split -> Exp -> Mul -> Ceil -> Cast -> CumSum -> Reshape_1` chain
+  - on the current stack this can inflate the duration length from CPU `41` to
+    ROCm `2992+` for the same real input case
+  - the isolated `dp_shape_cast` mini-repro stays green on ROCm when it is fed
+    CPU-captured boundary tensors, so that exact chain is not the primary bug
+  - the first currently proven upstream boundary mismatch feeding that chain is
+    `/dp/flows.0/Mul_1_output_0`
+  - the smaller `/dp/flows.0/Sub -> /dp/flows.0/Mul -> /dp/flows.0/Mul_1`
+    mini-repro is also green with CPU-captured boundary tensors
+  - the first currently proven non-constant upstream mismatch for that smaller
+    flow path is `/dp/flows.3/Mul_35_output_0`
+  - a standalone deterministic profile now exists for that branch work:
+    - `onnxruntime_in_tree_tts_flow_probe`
+    - it runs the internal probe helper as its own validation step
+    - it freezes `/dp/RandomNormalLike` to zeros by default
+  - current deterministic branch probing above that point still localizes one
+    step further to `/dp/flows.3/Split_output_0`, fed from
+    `/dp/flows.4/Slice_output_0`
+  - the isolated deterministic `dp_flow3_split_path` mini-repro is green on
+    ROCm when it is fed CPU-captured boundary tensors; the first upstream
+    boundary mismatch for that path is `/dp/flows.5/Mul_35_output_0`
+  - forcing `miopen_conv_use_max_workspace=0` versus `=1` in the current
+    staged-model debug repro does not change the first mismatching tensor, the
+    `Cast` explosion (`2992`), or the final blown-up output length
+  - the current workspace-warning family still reports `provided ... size:
+    33554432` in both runs; the ORT ROCm `ConvTranspose` algo-search path also
+    still hard-codes the 32 MiB search buffer
+  - `ORT_ROCM_DISABLE_FAST_REDUCTION=1` does not resolve that shape-path family
+    in the current staged-model repro
+- the earlier `flow7` Mul suspicion is now downgraded:
   - `/dp/flows.7/Mul_10`
   - `/dp/flows.7/Mul_16`
-- both faulty branches share the same structure:
-  - `Mul -> Add -> CumSum -> Pad`
-  - with later `ScatterND_*` corruption appearing downstream
-- exact isolated mini-repros built from the real full-graph inputs show that
-  `Mul_10` itself runs correctly on ROCm when isolated; this points away from a
-  bare Mul kernel bug and toward topology-/lifetime-/execution-order-specific
-  ROCm EP behavior in the real Piper graph
+  still fail in the full graph, but an exact isolated `flow7` gate mini-repro
+  is green on ROCm when it is fed CPU-captured boundary tensors
+- that means the faulty `Mul_10`/`Mul_16` values are downstream symptoms, not a
+  proven bare Mul kernel bug
+- current deterministic upstream path above those gates:
+  - the first stable full-graph boundary mismatch for the local logits path is
+    `/dp/flows.7/Transpose_output_0`
+  - targeted full-graph probes above that point show earlier deterministic
+    divergences already at:
+    - `/dp/flows.7/convs/Mul_15_output_0`
+    - `/dp/flows.7/pre/Conv_output_0`
+    - `/dp/Mul_output_0`
+  - the deterministic `/dp/RandomNormalLike -> /Gather_2 -> /dp/Mul_1 ->
+    /dp/flows.8/Slice -> /dp/flows.7/Split` path is green, so that input path
+    is no longer treated as the primary deterministic fault site
 - exact node forcing remains debug-only and is not an accepted solution
 - standalone minimal extracted subgraphs can run correctly on ROCm while the
   full graph still fails; the current best diagnosis is therefore still

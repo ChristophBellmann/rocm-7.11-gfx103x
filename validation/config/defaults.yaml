@@ -186,6 +186,27 @@ workloads:
     # warning seen on the current stack. Keep false until the stack issue is
     # fixed and the workload is green.
     tts_require_zero_miopen_workspace_warnings: false
+    # On CPU-vs-ROCm shape mismatches, run a focused node-level diagnostic for
+    # the first failing case and store JSON artifacts under the current run dir.
+    tts_shape_diagnose_on_shape_mismatch: true
+    tts_shape_diag_timeout_s: 240
+    # Standalone flow probe for the currently failing /dp/flows.* branch. This
+    # runs the internal debug helper as its own validation step and stores the
+    # JSON report plus exact-chain repro artifacts under the run artifact dir.
+    tts_flow_probe_preset: "dp_flow3_branch"
+    tts_flow_probe_case_label: "mogli"
+    tts_flow_probe_graph_mode: "full"
+    tts_flow_probe_opt_level: "disable"
+    tts_flow_probe_timeout_s: 300
+    tts_flow_probe_outputs: []
+    tts_flow_probe_node_prefixes: []
+    tts_flow_probe_node_names: []
+    tts_flow_probe_rocm_provider_options: []
+    tts_flow_probe_freeze_dp_random_zeros: true
+    tts_flow_probe_extract_per_output: false
+    tts_flow_probe_chunk_size: 0
+    tts_flow_probe_max_report: 30
+    tts_flow_probe_run_nofast: true
   tensorflow:
     # Build settings for validation/src/steps/workloads/tensorflow/rocm_wheel.py
     repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"
@@ -220,6 +241,7 @@ steps:
   onnxruntime_rocm_wheel: false
   onnxruntime_infer: false
   onnxruntime_tts_infer: false
+  onnxruntime_tts_flow_probe: false
   onnxruntime_migraphx_infer: false
   tensorflow_rocm_wheel: false
   tensorflow_functional: false
@@ -239,6 +261,7 @@ timeouts_s:
   ollama_run: 600
   open_interpreter: 900
   whisper: 1800
+  onnxruntime_tts_flow_probe: 600
   mfem_hip: 3600
   pytorch: 900
   pytorch_install: 1800
