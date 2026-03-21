@@ -259,8 +259,9 @@ the custom ROCm stack produced by this repository.
   - then validate against the same ROCm stack used here
 - Build helpers in this repo:
   - `validation/scripts/onnxruntime_rocm/build_onnxruntime_rocm_wheel.sh` (TheRock integration wrapper)
-  - `validation/scripts/onnxruntime_rocm/start_onnxruntime_rocm_build_systemd.sh`
-  - `validation/scripts/onnxruntime_rocm/monitor_onnxruntime_rocm_build.sh`
+  - `validation/scripts/onnxruntime_rocm/systemd_onnxruntime_rocm_build.sh` (`start`/`monitor`)
+  - `validation/scripts/onnxruntime_rocm/start_onnxruntime_rocm_build_systemd.sh` (compat wrapper)
+  - `validation/scripts/onnxruntime_rocm/monitor_onnxruntime_rocm_build.sh` (compat wrapper)
   - `validation/scripts/onnxruntime_rocm/install_onnxruntime_rocm_wheel_to_opt.sh` (TheRock integration wrapper)
   - `validation/scripts/onnxruntime_rocm/verify_onnxruntime_rocm_provider_sync.sh` (local provider/source freshness check)
 - Artifacts:
