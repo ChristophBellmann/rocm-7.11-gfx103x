@@ -9,6 +9,18 @@ WORK_ROOT="${WORK_ROOT:-${ROOT}/validation/workspace/builds/onnxruntime_rocm}"
 BUILD_DIR="${BUILD_DIR:-${WORK_ROOT}/build-gfx1031-tlsfix-wheel}"
 LOG_FILE="${LOG_FILE:-${WORK_ROOT}/ort_build_live.log}"
 WHEEL_OUT_DIR="${WHEEL_OUT_DIR:-${ROOT}/validation/workspace/cache/wheels/onnxruntime_rocm711}"
+ROCM_PATH="${ROCM_PATH:-${ROOT}/build-stage2/dist/rocm}"
+ORT_USE_CCACHE="${ORT_USE_CCACHE:-1}"
+
+setup_ccache() {
+  if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
+    PATH="${ROOT}/.local/bin:${PATH}"
+  fi
+  if [[ -x "${ROOT}/build_tools/setup_ccache.py" ]]; then
+    eval "$(python3 "${ROOT}/build_tools/setup_ccache.py" --init)"
+  fi
+  export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-include_file_ctime}"
+}
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<USAGE
@@ -20,11 +32,13 @@ Environment:
   ONNXRUNTIME_ROCM_REPO=${ONNXRUNTIME_ROCM_REPO}
   WORK_ROOT=${WORK_ROOT}
   WHEEL_OUT_DIR=${WHEEL_OUT_DIR}
+  ROCM_PATH=${ROCM_PATH}
+  ORT_USE_CCACHE=${ORT_USE_CCACHE}
 USAGE
   exit 0
 fi
 
-for var_name in ONNXRUNTIME_ROCM_REPO WORK_ROOT BUILD_DIR LOG_FILE WHEEL_OUT_DIR; do
+for var_name in ONNXRUNTIME_ROCM_REPO WORK_ROOT BUILD_DIR LOG_FILE WHEEL_OUT_DIR ROCM_PATH; do
   var_value="${!var_name}"
   if [[ "${var_value}" != /* ]]; then
     printf -v "${var_name}" '%s/%s' "${ROOT}" "${var_value}"
@@ -38,6 +52,14 @@ fi
 if [[ -n "${MIGRAPHX_HOME:-}" && "${MIGRAPHX_HOME}" != /* ]]; then
   MIGRAPHX_HOME="${ROOT}/${MIGRAPHX_HOME}"
   export MIGRAPHX_HOME
+fi
+
+if [[ "${ORT_USE_CCACHE}" == "1" ]]; then
+  setup_ccache
+  if command -v ccache >/dev/null 2>&1; then
+    export ORT_CMAKE_C_COMPILER_LAUNCHER="${ORT_CMAKE_C_COMPILER_LAUNCHER:-ccache}"
+    export ORT_CMAKE_CXX_COMPILER_LAUNCHER="${ORT_CMAKE_CXX_COMPILER_LAUNCHER:-ccache}"
+  fi
 fi
 
 if [[ ! -e "${ONNXRUNTIME_ROCM_REPO}/.git" ]]; then

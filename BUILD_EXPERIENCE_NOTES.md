@@ -451,3 +451,53 @@
 - GPU-focused warnings (hipBLASLt/hipSPARSELt/rocWMMA/composable_kernel) are expected on gfx1031 in this branch if those components are enabled; no action required yet.  
 - Continue using serial builds unless we add explicit dependencies between stage/dist targets.
 - Pending validation: helper automation (auto-venv + ccache 4.11.1 + clang/ninja) has not been executed in a fresh build yet.
+
+48. **2026-03-18: ORT ROCm incremental provider rebuild did not pick up a changed source file**
+   - Context: local debugging in the ONNX Runtime ROCm fork under:
+     - source: `validation/workspace/cache/git/onnxruntime_rocm711/`
+     - build: `validation/workspace/builds/onnxruntime_rocm/build-gfx1031-tlsfix-wheel/Release`
+   - Symptom:
+     - `onnxruntime/core/providers/rocm/rocm_allocator.cc` was modified and had a newer timestamp than the corresponding object file.
+     - A normal incremental rebuild via:
+       - `make -C validation/workspace/builds/onnxruntime_rocm/build-gfx1031-tlsfix-wheel/Release libonnxruntime_providers_rocm.so`
+       - and even targeted `make` for `.../rocm_allocator.cc.o`
+       returned immediately and did **not** refresh the object file timestamp.
+     - Result: the produced `libonnxruntime_providers_rocm.so` could silently remain stale even though the source had changed.
+   - Verified behavior:
+     - source timestamp was newer than:
+       - `Release/CMakeFiles/onnxruntime_providers_rocm.dir/.../rocm_allocator.cc.o`
+     - but the object remained at the old timestamp until a manual direct compile was executed.
+   - Reliable recovery in this state:
+     - do not trust the incremental `make` result blindly.
+     - force a real rebuild of the affected object (or clean/reconfigure the ORT build tree) and then relink `libonnxruntime_providers_rocm.so`.
+     - after relink, verify that the wheel-staged provider in:
+       - `validation/workspace/envs/py/lib/python3.12/site-packages/onnxruntime/capi/libonnxruntime_providers_rocm.so`
+       actually matches the rebuilt `Release/libonnxruntime_providers_rocm.so`.
+   - Practical lesson:
+     - for ORT ROCm debugging/fixes in this repo, an apparently successful incremental rebuild is not sufficient evidence that the active provider binary contains the source change.
+     - before trusting a new runtime result, confirm at least one of:
+       - object timestamp changed,
+       - provider `.so` timestamp changed,
+       - expected new diagnostic string/symbol is present in the rebuilt library,
+       - or the build tree was explicitly cleaned/reconfigured.
+   - Consequence for future work:
+     - treat the ORT ROCm build tree as potentially incrementally inconsistent until we either reproduce and fix the dependency tracking issue or standardize on a more explicit rebuild/verification step in the helper workflow.
+   - Follow-up:
+     - `validation/scripts/onnxruntime_rocm/verify_onnxruntime_rocm_provider_sync.sh`
+       now exists to check source/object freshness plus Release/active-provider
+       sync before trusting local ORT validation/debug results.
+
+49. **2026-03-20: TheRock ORT wrapper now defaults to in-tree ROCm and forwards ccache launchers**
+   - The integration wrapper `validation/scripts/onnxruntime_rocm/build_onnxruntime_rocm_wheel.sh`
+     now defaults `ROCM_PATH` to `build-stage2/dist/rocm` so TheRock-side ORT
+     builds no longer silently fall back to `/opt/rocm`.
+   - When `ccache` is available and `ORT_USE_CCACHE!=0`, the wrapper now exports:
+     - `ORT_CMAKE_C_COMPILER_LAUNCHER=ccache`
+     - `ORT_CMAKE_CXX_COMPILER_LAUNCHER=ccache`
+   - The ORT fork helper consumes those settings as:
+     - `CMAKE_C_COMPILER_LAUNCHER`
+     - `CMAKE_CXX_COMPILER_LAUNCHER`
+   - Result:
+     - the ORT wheel build path now matches the repo-wide policy better:
+       custom in-tree ROCm by default, and ccache-backed incremental builds when
+       available.

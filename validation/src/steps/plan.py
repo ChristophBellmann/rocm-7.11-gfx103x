@@ -1099,14 +1099,36 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
     require_output_match = bool(wl.get("tts_require_output_match", True))
     compare_rtol = float(wl.get("tts_compare_rtol", 1.0e-3))
     compare_atol = float(wl.get("tts_compare_atol", 1.0e-5))
+    freeze_randomnormal_like_zeros = bool(wl.get("tts_freeze_randomnormal_like_zeros", False))
     require_zero_miopen_warnings = bool(wl.get("tts_require_zero_miopen_workspace_warnings", False))
     timeout_s = int(cfg.get("timeouts_s", {}).get("onnxruntime_infer", 900))
     debug_dir = ctx.repo_root / "validation" / "workspace" / "debug" / "onnxruntime_tts_profiles"
     debug_dir.mkdir(parents=True, exist_ok=True)
     profile_prefix = debug_dir / f"{build_dir.replace('/', '_')}_onnxruntime_tts_profile"
+    freeze_dur_ms = 0.0
 
     with tempfile.TemporaryDirectory(prefix="rocm-validation-ort-tts-") as td:
         tdp = Path(td)
+        runnable_model = model
+        if freeze_randomnormal_like_zeros:
+            diag_py = _resolve_onnxruntime_tts_diag_python(ctx, run_env, py, log)
+            if diag_py is None:
+                return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), "no python with onnx+onnxruntime to freeze Piper RandomNormalLike nodes")
+            diag_script = ctx.repo_root / "validation" / "src" / "steps" / "workloads" / "onnxruntime" / "piper_tts_debug.py"
+            runnable_model = tdp / f"{model.stem}.rng_frozen.onnx"
+            freeze_cmd = [
+                diag_py,
+                str(diag_script),
+                "--model",
+                str(model),
+                "--freeze-dp-random-zeros",
+                "--write-frozen-model",
+                str(runnable_model),
+            ]
+            r_freeze = run_cmd(ctx.repo_root, run_env, freeze_cmd, 300, log)
+            freeze_dur_ms += r_freeze.dur_ms
+            if r_freeze.rc != 0:
+                return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + freeze_dur_ms), f"freeze_randomnormal_like rc={r_freeze.rc}")
         script = tdp / "ort_tts_infer.py"
         script.write_text(
             (
@@ -1116,7 +1138,7 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
                 "from pathlib import Path\n"
                 "import numpy as np\n"
                 "import onnxruntime as ort\n"
-                f"model = r'''{model}'''\n"
+                f"model = r'''{runnable_model}'''\n"
                 f"config_path = r'''{config_path}'''\n"
                 f"profile_prefix = r'''{profile_prefix}'''\n"
                 f"warmup = {warmup}\n"
@@ -1258,38 +1280,39 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
             return r, sampler
 
         r_tts, sampler = _with_power_sampler(ctx, cfg, build_dir, "onnxruntime_tts_infer", run_tts)
+        total_tts_ms = r_install.dur_ms + freeze_dur_ms + r_tts.dur_ms
         if r_tts.rc != 0:
-            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), f"tts rc={r_tts.rc}")
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_tts_ms), f"tts rc={r_tts.rc}")
 
     combined = r_tts.out + "\n" + r_tts.err
     m = re.search(r"ORT_TTS_RESULT_JSON=(\{.*\})", combined)
     if not m:
-        return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "missing ORT_TTS_RESULT_JSON in output")
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_tts_ms), "missing ORT_TTS_RESULT_JSON in output")
     data = json.loads(m.group(1))
     miopen_warning_count = len(re.findall(r"MIOpen\(HIP\): Warning \[IsEnoughWorkspace\]", combined))
 
     cpu_data = data.get("cpu") if require_cpu_reference else None
     if require_cpu_reference:
         if not isinstance(cpu_data, dict):
-            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "missing CPU reference data")
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_tts_ms), "missing CPU reference data")
         if int(cpu_data.get("failed_cases", 0)) > 0:
             first = (cpu_data.get("failures") or [{}])[0]
             return StepResult(
                 build_dir,
                 step_name,
                 "FAIL",
-                fmt_duration(r_install.dur_ms + r_tts.dur_ms),
+                fmt_duration(total_tts_ms),
                 f"CPU reference failed for {int(cpu_data.get('failed_cases', 0))}/{int(cpu_data.get('case_count', 0))} cases; first={first.get('label') or first.get('phoneme_len')}:{first.get('scales')} {first.get('error_type')} {first.get('error')}",
             )
 
     rocm_data = data.get("rocm") or {}
     if int(rocm_data.get("provider_events_rocm", 0)) <= 0:
-        return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "no ROCMExecutionProvider events in Piper TTS ORT profile")
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_tts_ms), "no ROCMExecutionProvider events in Piper TTS ORT profile")
 
     compare_data = data.get("compare") if require_cpu_reference else None
     if require_cpu_reference and require_output_match:
         if not isinstance(compare_data, list):
-            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), "missing CPU-vs-ROCm compare data")
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_tts_ms), "missing CPU-vs-ROCm compare data")
         bad = [item for item in compare_data if not bool(item.get("ok"))]
         if bad:
             first = bad[0]
@@ -1316,7 +1339,7 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
                     )
                     if diag:
                         detail += f"; {diag}"
-            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), detail)
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_tts_ms), detail)
 
     hip_lib = str(data.get("hip_lib", "") or "").strip()
     profile_path = str(rocm_data.get("profile_path", "") or "").strip()
@@ -1333,7 +1356,7 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
             build_dir,
             step_name,
             "FAIL",
-            fmt_duration(r_install.dur_ms + r_tts.dur_ms),
+            fmt_duration(total_tts_ms),
             detail,
         )
 
@@ -1342,7 +1365,7 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
             build_dir,
             step_name,
             "FAIL",
-            fmt_duration(r_install.dur_ms + r_tts.dur_ms),
+            fmt_duration(total_tts_ms),
             f"MIOpen emitted workspace warnings: {miopen_warning_count}",
         )
 
@@ -1350,9 +1373,9 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
     if req:
         expected = str(rocm_dist) if req == "in-tree" else req.rstrip("/")
         if not hip_lib:
-            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), f"could not determine loaded ROCm runtime lib (libamdhip64/libMIOpen/librocblas); expected prefix: {expected}")
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_tts_ms), f"could not determine loaded ROCm runtime lib (libamdhip64/libMIOpen/librocblas); expected prefix: {expected}")
         if not hip_lib.startswith(expected + "/"):
-            return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + r_tts.dur_ms), f"ROCm runtime lib not from expected prefix: {expected}; hip_lib={hip_lib}")
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_tts_ms), f"ROCm runtime lib not from expected prefix: {expected}; hip_lib={hip_lib}")
 
     metric = (
         f"cases={int(rocm_data.get('case_count', 0))} "
@@ -1372,7 +1395,7 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
         metric += f" profile={profile_path}"
     metric += f" rocm_env={'in-tree' if use_in_tree else 'system'}"
     metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
-    return StepResult(build_dir, step_name, "OK", fmt_duration(r_install.dur_ms + r_tts.dur_ms), metric)
+    return StepResult(build_dir, step_name, "OK", fmt_duration(total_tts_ms), metric)
 
 
 def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:

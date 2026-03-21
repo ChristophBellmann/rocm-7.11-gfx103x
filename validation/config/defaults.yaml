@@ -181,7 +181,14 @@ workloads:
     # these tolerances. Shape mismatches always fail.
     tts_require_output_match: true
     tts_compare_rtol: 1.0e-3
-    tts_compare_atol: 1.0e-5
+    # After freezing Piper's RandomNormalLike nodes, the remaining CPU-vs-ROCm
+    # drift is in the low 1e-5 range. Keep the threshold tight, but high enough
+    # to avoid false negatives from normal FP accumulation noise.
+    tts_compare_atol: 5.0e-5
+    # Piper uses RandomNormalLike in both /dp and /flow branches. Freeze them
+    # to dynamic zero tensors during validation so CPU/ROCm comparisons stay
+    # deterministic instead of diverging on provider-local RNG streams.
+    tts_freeze_randomnormal_like_zeros: true
     # If true, fail the TTS validation as soon as MIOpen emits the workspace
     # warning seen on the current stack. Keep false until the stack issue is
     # fixed and the workload is green.

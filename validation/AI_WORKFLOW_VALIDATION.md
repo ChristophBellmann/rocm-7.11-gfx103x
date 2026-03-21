@@ -134,8 +134,9 @@ A correct end state for `validation/` means:
     - the primary investigation site is `validation/`, not the consumer repo
     - the real Piper failure now reproduces directly in `validation/` with a
       staged model, a real-case fixture, and a fixed seed
-    - for exact flow probes, freeze `/dp/RandomNormalLike` to zeros so the
-      probe follows deterministic ROCm bugs instead of provider-local RNG drift
+    - for deterministic Piper work, freeze `RandomNormalLike` nodes to dynamic
+      zero tensors so the probe follows real ROCm bugs instead of
+      provider-local RNG drift
     - the TTS validation is only green if the final ROCm output matches the CPU
       reference within the configured tolerance; exception-free ROCm execution
       alone is not sufficient
@@ -151,7 +152,8 @@ A correct end state for `validation/` means:
     - a standalone deterministic profile now exists:
       - `onnxruntime_in_tree_tts_flow_probe`
       - it runs the internal probe helper as its own validation step
-      - it freezes `/dp/RandomNormalLike` to zeros by default
+      - it freezes Piper `RandomNormalLike` nodes to dynamic zero tensors by
+        default
     - current deterministic branch probing above that point still localizes one
       step further to `/dp/flows.3/Split_output_0`, fed from
       `/dp/flows.4/Slice_output_0`
@@ -164,7 +166,12 @@ A correct end state for `validation/` means:
     - the current workspace-warning family still reports `provided ... size:
       33554432` in both runs; the ORT ROCm `ConvTranspose` algo-search path
       also still hard-codes the 32 MiB search buffer
-    - there is still no accepted final GPU-only fix
+    - the March 2026 green TTS validation path now depends on two fixes:
+      - the ORT ROCm workspace-search fix in the provider
+      - deterministic freezing of Piper `RandomNormalLike` nodes in validation
+    - the last large post-workspace mismatch was traced to the second
+      `/RandomNormalLike` node in the `/flow` branch, not to a remaining
+      decoder/conv kernel correctness bug
     - one confirmed bug family is ROCm fast reduction in the encoder
       normalization path; `ORT_ROCM_DISABLE_FAST_REDUCTION=1` is diagnostic only
       and must not be treated as the solution

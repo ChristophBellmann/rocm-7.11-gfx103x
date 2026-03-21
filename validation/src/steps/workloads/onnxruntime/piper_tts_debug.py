@@ -110,7 +110,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument(
         "--freeze-dp-random-zeros",
         action="store_true",
-        help="Replace /dp/RandomNormalLike with a zero-valued Constant for deterministic Piper debug runs",
+        help="Replace Piper RandomNormalLike nodes with dynamic zero tensors for deterministic debug runs",
+    )
+    ap.add_argument(
+        "--write-frozen-model",
+        default="",
+        help="If set together with --freeze-dp-random-zeros, write the rewritten model here and exit",
     )
     ap.add_argument(
         "--extract-per-output",
@@ -136,16 +141,29 @@ def parse_args() -> argparse.Namespace:
             "dp_flow7_sub1_path",
             "dp_flow7_softmax1_path",
             "dp_flow7_pad2_path",
+            "dp_flow7_transpose_path",
             "dp_flow7_proj_path",
             "dp_flow7_convmul15_path",
             "dp_flow7_convadd6_path",
             "dp_flow7_convmul14_path",
             "dp_flow7_convadd9_path",
             "dp_flow7_convadd3_path",
+            "dp_flow7_convmul5_path",
+            "dp_flow7_convmul4_path",
+            "dp_flow7_convmul3_path",
+            "dp_flow7_convsep1_path",
+            "dp_flow7_convadd2_path",
             "dp_flow7_convmul9_path",
             "dp_flow7_convmul13_path",
             "dp_flow7_convadd_path",
+            "dp_flow7_convmul7_path",
+            "dp_flow7_convmul6_path",
+            "dp_flow7_convadd4_path",
             "dp_flow7_convmul8_path",
+            "dp_flow7_norm11_transpose1_path",
+            "dp_flow7_norm11_add1_path",
+            "dp_flow7_converf2_path",
+            "dp_flow7_norm20_transpose1_path",
             "dp_flow7_norm22_transpose1_path",
             "dp_flow7_convadd8_path",
             "dp_convs_add2_path",
@@ -155,7 +173,32 @@ def parse_args() -> argparse.Namespace:
             "enc_p_encoder_mul2_path",
             "dp_convs_mul15_path",
             "dp_convs_mul3_path",
+            "dp_flow7_norm21_transpose_path",
+            "dp_flow7_norm20_add1_path",
             "dp_flow7_norm21_add1_path",
+            "dp_flow7_norm20_mul_path",
+            "dp_flow7_norm20_div_path",
+            "dp_flow7_norm20_sub_path",
+            "dp_flow7_norm20_sqrt_path",
+            "dp_flow7_norm20_transpose_path",
+            "dp_flow7_norm20_reducemean_path",
+            "dp_flow7_convs1x1_0_conv_path",
+            "dp_flow7_convmul2_path",
+            "dp_flow7_convmul1_path",
+            "dp_flow7_convadd1_path",
+            "dp_flow7_norm10_transpose1_path",
+            "dp_flow7_norm10_add1_path",
+            "dp_flow7_converf_path",
+            "dp_flow7_norm10_mul_path",
+            "dp_flow7_norm10_div_path",
+            "dp_flow7_norm10_sub_path",
+            "dp_flow7_norm10_sqrt_path",
+            "dp_flow7_norm10_add_path",
+            "dp_flow7_norm10_reducemean1_path",
+            "dp_flow7_norm10_pow_path",
+            "dp_flow7_norm10_reducemean_path",
+            "dp_flow7_norm10_transpose_path",
+            "dp_flow7_convdiv_path",
             "dp_flow7_norm21_mul_path",
             "dp_flow7_norm21_div_path",
             "dp_flow7_norm21_sub_path",
@@ -459,6 +502,19 @@ _EXACT_CHAIN_PRESETS: dict[str, dict[str, list[str] | str]] = {
             "/dp/flows.7/Pad_2_output_0",
         ],
     },
+    "dp_flow7_transpose_path": {
+        "description": "Focused repro for the /dp/flows.7 Mul -> Reshape -> Transpose path",
+        "node_names": [
+            "/dp/flows.7/Mul",
+            "/dp/flows.7/Reshape",
+            "/dp/flows.7/Transpose",
+        ],
+        "output_names": [
+            "/dp/flows.7/Mul_output_0",
+            "/dp/flows.7/Reshape_output_0",
+            "/dp/flows.7/Transpose_output_0",
+        ],
+    },
     "dp_flow7_proj_path": {
         "description": "Focused repro for the /dp/flows.7 conv/proj -> reshape -> transpose path",
         "node_names": [
@@ -521,6 +577,51 @@ _EXACT_CHAIN_PRESETS: dict[str, dict[str, list[str] | str]] = {
             "/dp/flows.7/convs/Add_3_output_0",
         ],
     },
+    "dp_flow7_convmul5_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Mul_5 path",
+        "node_names": [
+            "/dp/flows.7/convs/Mul_5",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Mul_5_output_0",
+        ],
+    },
+    "dp_flow7_convmul4_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Mul_4 path",
+        "node_names": [
+            "/dp/flows.7/convs/Mul_4",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Mul_4_output_0",
+        ],
+    },
+    "dp_flow7_convmul3_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Mul_3 path",
+        "node_names": [
+            "/dp/flows.7/convs/Mul_3",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Mul_3_output_0",
+        ],
+    },
+    "dp_flow7_convsep1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/convs_sep.1/Conv path",
+        "node_names": [
+            "/dp/flows.7/convs/convs_sep.1/Conv",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/convs_sep.1/Conv_output_0",
+        ],
+    },
+    "dp_flow7_convadd2_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Add_2 path",
+        "node_names": [
+            "/dp/flows.7/convs/Add_2",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Add_2_output_0",
+        ],
+    },
     "dp_flow7_convmul9_path": {
         "description": "Focused repro for the /dp/flows.7 convs/Mul_9 path",
         "node_names": [
@@ -548,6 +649,35 @@ _EXACT_CHAIN_PRESETS: dict[str, dict[str, list[str] | str]] = {
             "/dp/flows.7/convs/Add_output_0",
         ],
     },
+    "dp_flow7_convmul7_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Mul_6 -> Mul_7 path",
+        "node_names": [
+            "/dp/flows.7/convs/Mul_6",
+            "/dp/flows.7/convs/Mul_7",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Mul_6_output_0",
+            "/dp/flows.7/convs/Mul_7_output_0",
+        ],
+    },
+    "dp_flow7_convmul6_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Mul_6 path",
+        "node_names": [
+            "/dp/flows.7/convs/Mul_6",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Mul_6_output_0",
+        ],
+    },
+    "dp_flow7_convadd4_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Add_4 path",
+        "node_names": [
+            "/dp/flows.7/convs/Add_4",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Add_4_output_0",
+        ],
+    },
     "dp_flow7_convmul8_path": {
         "description": "Focused repro for the /dp/flows.7 convs/Mul_8 path",
         "node_names": [
@@ -555,6 +685,62 @@ _EXACT_CHAIN_PRESETS: dict[str, dict[str, list[str] | str]] = {
         ],
         "output_names": [
             "/dp/flows.7/convs/Mul_8_output_0",
+        ],
+    },
+    "dp_flow7_norm11_transpose1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.1/Transpose_1 path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.1/Transpose_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.1/Transpose_1_output_0",
+        ],
+    },
+    "dp_flow7_norm11_add1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.1 path through Add_1",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.1/Transpose",
+            "/dp/flows.7/convs/norms_1.1/ReduceMean",
+            "/dp/flows.7/convs/norms_1.1/Sub",
+            "/dp/flows.7/convs/norms_1.1/Pow",
+            "/dp/flows.7/convs/norms_1.1/ReduceMean_1",
+            "/dp/flows.7/convs/norms_1.1/Add",
+            "/dp/flows.7/convs/norms_1.1/Sqrt",
+            "/dp/flows.7/convs/norms_1.1/Div",
+            "/dp/flows.7/convs/norms_1.1/Mul",
+            "/dp/flows.7/convs/norms_1.1/Add_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.1/Transpose_output_0",
+            "/dp/flows.7/convs/norms_1.1/ReduceMean_output_0",
+            "/dp/flows.7/convs/norms_1.1/Sub_output_0",
+            "/dp/flows.7/convs/norms_1.1/Pow_output_0",
+            "/dp/flows.7/convs/norms_1.1/ReduceMean_1_output_0",
+            "/dp/flows.7/convs/norms_1.1/Add_output_0",
+            "/dp/flows.7/convs/norms_1.1/Sqrt_output_0",
+            "/dp/flows.7/convs/norms_1.1/Div_output_0",
+            "/dp/flows.7/convs/norms_1.1/Mul_output_0",
+            "/dp/flows.7/convs/norms_1.1/Add_1_output_0",
+        ],
+    },
+    "dp_flow7_converf2_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Div_2 -> Erf_2 path",
+        "node_names": [
+            "/dp/flows.7/convs/Div_2",
+            "/dp/flows.7/convs/Erf_2",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Div_2_output_0",
+            "/dp/flows.7/convs/Erf_2_output_0",
+        ],
+    },
+    "dp_flow7_norm20_transpose1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_2.0/Transpose_1 path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_2.0/Transpose_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_2.0/Transpose_1_output_0",
         ],
     },
     "dp_flow7_norm22_transpose1_path": {
@@ -645,6 +831,233 @@ _EXACT_CHAIN_PRESETS: dict[str, dict[str, list[str] | str]] = {
         ],
         "output_names": [
             "/dp/flows.7/convs/norms_2.1/Add_1_output_0",
+        ],
+    },
+    "dp_flow7_norm20_add1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_2.0/Add_1 path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_2.0/Add_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_2.0/Add_1_output_0",
+        ],
+    },
+    "dp_flow7_norm20_mul_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_2.0/Mul path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_2.0/Mul",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_2.0/Mul_output_0",
+        ],
+    },
+    "dp_flow7_norm20_div_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_2.0/Div path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_2.0/Div",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_2.0/Div_output_0",
+        ],
+    },
+    "dp_flow7_norm20_sub_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_2.0/Sub path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_2.0/Sub",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_2.0/Sub_output_0",
+        ],
+    },
+    "dp_flow7_norm20_sqrt_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_2.0/Sqrt path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_2.0/Sqrt",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_2.0/Sqrt_output_0",
+        ],
+    },
+    "dp_flow7_norm20_transpose_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_2.0/Transpose path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_2.0/Transpose",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_2.0/Transpose_output_0",
+        ],
+    },
+    "dp_flow7_norm20_reducemean_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_2.0/ReduceMean path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_2.0/ReduceMean",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_2.0/ReduceMean_output_0",
+        ],
+    },
+    "dp_flow7_convs1x1_0_conv_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/convs_1x1.0/Conv path",
+        "node_names": [
+            "/dp/flows.7/convs/convs_1x1.0/Conv",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/convs_1x1.0/Conv_output_0",
+        ],
+    },
+    "dp_flow7_convmul2_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Mul_2 path",
+        "node_names": [
+            "/dp/flows.7/convs/Mul_2",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Mul_2_output_0",
+        ],
+    },
+    "dp_flow7_convmul1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Mul_1 path",
+        "node_names": [
+            "/dp/flows.7/convs/Mul_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Mul_1_output_0",
+        ],
+    },
+    "dp_flow7_convadd1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Add_1 path",
+        "node_names": [
+            "/dp/flows.7/convs/Add_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Add_1_output_0",
+        ],
+    },
+    "dp_flow7_norm10_transpose1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Transpose_1 path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Transpose_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Transpose_1_output_0",
+        ],
+    },
+    "dp_flow7_norm10_add1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Add_1 path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Add_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Add_1_output_0",
+        ],
+    },
+    "dp_flow7_norm10_mul_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Mul path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Mul",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Mul_output_0",
+        ],
+    },
+    "dp_flow7_norm10_div_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Div path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Div",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Div_output_0",
+        ],
+    },
+    "dp_flow7_norm10_sub_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Sub path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Sub",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Sub_output_0",
+        ],
+    },
+    "dp_flow7_norm10_sqrt_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Sqrt path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Sqrt",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Sqrt_output_0",
+        ],
+    },
+    "dp_flow7_norm10_add_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Add path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Add",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Add_output_0",
+        ],
+    },
+    "dp_flow7_norm10_reducemean1_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/ReduceMean_1 path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/ReduceMean_1",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/ReduceMean_1_output_0",
+        ],
+    },
+    "dp_flow7_norm10_pow_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Pow path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Pow",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Pow_output_0",
+        ],
+    },
+    "dp_flow7_norm10_reducemean_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/ReduceMean path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/ReduceMean",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/ReduceMean_output_0",
+        ],
+    },
+    "dp_flow7_norm10_transpose_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/norms_1.0/Transpose path",
+        "node_names": [
+            "/dp/flows.7/convs/norms_1.0/Transpose",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/norms_1.0/Transpose_output_0",
+        ],
+    },
+    "dp_flow7_converf_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Erf path",
+        "node_names": [
+            "/dp/flows.7/convs/Erf",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Erf_output_0",
+        ],
+    },
+    "dp_flow7_convdiv_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/Div path",
+        "node_names": [
+            "/dp/flows.7/convs/Div",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/Div_output_0",
+        ],
+    },
+    "dp_flow7_norm21_transpose_path": {
+        "description": "Focused repro for the /dp/flows.7 convs/convs_1x1.1/Conv -> norms_2.1/Transpose path",
+        "node_names": [
+            "/dp/flows.7/convs/convs_1x1.1/Conv",
+            "/dp/flows.7/convs/norms_2.1/Transpose",
+        ],
+        "output_names": [
+            "/dp/flows.7/convs/convs_1x1.1/Conv_output_0",
+            "/dp/flows.7/convs/norms_2.1/Transpose_output_0",
         ],
     },
     "dp_flow7_norm21_mul_path": {
@@ -1055,32 +1468,38 @@ def _write_full_model_with_outputs(model_path: Path, out_path: Path, keep_output
     onnx.save(model, str(out_path))
 
 
-def _freeze_dp_random_zeros(model_path: Path, out_path: Path, feed: dict[str, np.ndarray]) -> None:
+def _freeze_dp_random_zeros(model_path: Path, out_path: Path, feed: dict[str, np.ndarray] | None = None) -> None:
     model = onnx.load(str(model_path))
-    input_seq = np.asarray(feed["input"])
-    batch = int(input_seq.shape[0])
-    seq_len = int(input_seq.shape[1])
-    zero_tensor = numpy_helper.from_array(np.zeros((batch, 2, seq_len), dtype=np.float32), name="dp_random_frozen")
 
-    replaced = False
+    replaced = 0
     new_nodes = []
     for node in model.graph.node:
-        if node.name == "/dp/RandomNormalLike" and node.op_type == "RandomNormalLike":
+        if node.op_type == "RandomNormalLike":
+            shape_name = f"{node.output[0]}__shape"
+            zero_value = numpy_helper.from_array(np.asarray([0.0], dtype=np.float32), name=f"{node.output[0]}__zero_value")
             new_nodes.append(
                 onnx.helper.make_node(
-                    "Constant",
-                    inputs=[],
-                    outputs=list(node.output),
-                    name="/dp/RandomNormalLike_Frozen",
-                    value=zero_tensor,
+                    "Shape",
+                    inputs=[node.input[0]],
+                    outputs=[shape_name],
+                    name=f"{node.name}_FrozenShape",
                 )
             )
-            replaced = True
+            new_nodes.append(
+                onnx.helper.make_node(
+                    "ConstantOfShape",
+                    inputs=[shape_name],
+                    outputs=list(node.output),
+                    name=f"{node.name}_FrozenZeros",
+                    value=zero_value,
+                )
+            )
+            replaced += 1
         else:
             new_nodes.append(node)
 
     if not replaced:
-        raise RuntimeError("did not find /dp/RandomNormalLike in Piper ONNX model")
+        raise RuntimeError("did not find RandomNormalLike in Piper ONNX model")
 
     del model.graph.node[:]
     model.graph.node.extend(new_nodes)
@@ -1380,6 +1799,14 @@ def main() -> int:
     args = parse_args()
     rocm_provider_options = _parse_provider_options(args.rocm_provider_options)
     model_path = ensure_staged_model_path(Path(args.model))
+    if args.write_frozen_model:
+        if not bool(args.freeze_dp_random_zeros):
+            raise ValueError("--write-frozen-model requires --freeze-dp-random-zeros")
+        out_path = Path(args.write_frozen_model).expanduser().resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        _freeze_dp_random_zeros(model_path, out_path, None)
+        print(json.dumps({"model": str(model_path), "frozen_model": str(out_path)}, indent=2))
+        return 0
     case_file = Path(args.case_file).expanduser().resolve() if args.case_file else default_case_file(model_path)
     model = onnx.load(str(model_path))
     exact_chain = _exact_chain_spec(model, args.exact_chain_repro) if args.exact_chain_repro else None

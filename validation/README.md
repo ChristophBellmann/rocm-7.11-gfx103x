@@ -262,9 +262,13 @@ the custom ROCm stack produced by this repository.
   - `validation/scripts/onnxruntime_rocm/start_onnxruntime_rocm_build_systemd.sh`
   - `validation/scripts/onnxruntime_rocm/monitor_onnxruntime_rocm_build.sh`
   - `validation/scripts/onnxruntime_rocm/install_onnxruntime_rocm_wheel_to_opt.sh` (TheRock integration wrapper)
+  - `validation/scripts/onnxruntime_rocm/verify_onnxruntime_rocm_provider_sync.sh` (local provider/source freshness check)
 - Artifacts:
   - build workspace: `validation/workspace/builds/onnxruntime_rocm/`
   - wheels: `validation/workspace/cache/wheels/onnxruntime_rocm711/`
+- TheRock wrapper defaults:
+  - `ROCM_PATH=<repo>/build-stage2/dist/rocm`
+  - enables `ccache` launchers when `ccache` is available and `ORT_USE_CCACHE!=0`
 - Known fork reference (for reproducibility):
   - Repo: `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x`
   - Branch: `christoph/gfx1031-buildfixes`
@@ -284,6 +288,12 @@ the custom ROCm stack produced by this repository.
     - `./tools/rocm_release/install_onnxruntime_rocm_wheel_to_opt.sh`
   - Typical cached artifact location in the ORT fork:
     - `.rocm_release/wheels/onnxruntime_rocm711/`
+  - launcher-based rebuild acceleration is supported there via:
+    - `CMAKE_C_COMPILER_LAUNCHER=ccache`
+    - `CMAKE_CXX_COMPILER_LAUNCHER=ccache`
+- After local ORT provider source edits, verify that the active provider really
+  matches the rebuilt source before trusting debug results:
+  - `bash validation/scripts/onnxruntime_rocm/verify_onnxruntime_rocm_provider_sync.sh --source onnxruntime/core/providers/rocm/<file>.cc`
 - In-tree validation profile:
   - `validation/config/profiles/onnxruntime_in_tree.yaml`
   - runs:
@@ -509,8 +519,9 @@ Current expected state for `onnxruntime_in_tree_tts` on a healthy stack:
   Piper graph contains `RandomNormalLike`:
   - `ort.set_seed(0)`
   - `numpy.random.seed(0)`
-  - for exact flow-probe work, freeze `/dp/RandomNormalLike` to zeros so the
-    probe follows deterministic ROCm bugs instead of provider-local RNG drift
+  - for deterministic Piper validation, freeze `RandomNormalLike` nodes to
+    dynamic zero tensors so the run follows real ROCm bugs instead of
+    provider-local RNG drift
 - there is currently no accepted final GPU-only fix for the full real Piper TTS
   graph on gfx1031
 - CPU fallback overrides such as:
@@ -546,7 +557,8 @@ Current March 2026 diagnosis snapshot:
   - a standalone deterministic profile now exists for that branch work:
     - `onnxruntime_in_tree_tts_flow_probe`
     - it runs the internal probe helper as its own validation step
-    - it freezes `/dp/RandomNormalLike` to zeros by default
+    - it freezes Piper `RandomNormalLike` nodes to dynamic zero tensors by
+      default
   - current deterministic branch probing above that point still localizes one
     step further to `/dp/flows.3/Split_output_0`, fed from
     `/dp/flows.4/Slice_output_0`
@@ -559,6 +571,10 @@ Current March 2026 diagnosis snapshot:
   - the current workspace-warning family still reports `provided ... size:
     33554432` in both runs; the ORT ROCm `ConvTranspose` algo-search path also
     still hard-codes the 32 MiB search buffer
+  - after the workspace fix, the last large full-model mismatch was traced to
+    the second `/RandomNormalLike` in the `/flow` branch; once both Piper
+    RNG nodes are frozen dynamically, the remaining CPU-vs-ROCm drift drops to
+    low `1e-5` noise and the real TTS validation is green again
   - `ORT_ROCM_DISABLE_FAST_REDUCTION=1` does not resolve that shape-path family
     in the current staged-model repro
 - the earlier `flow7` Mul suspicion is now downgraded:
