@@ -214,6 +214,13 @@ workloads:
     tts_flow_probe_chunk_size: 0
     tts_flow_probe_max_report: 30
     tts_flow_probe_run_nofast: true
+    # Piper benchmark settings. Keep these separate from the correctness step so
+    # we can compare CPU vs ROCm overhead on the exact same frozen real-model
+    # cases without changing pass/fail validation semantics.
+    tts_bench_warmup: 2
+    tts_bench_iters: 20
+    tts_bench_timeout_s: 900
+    tts_bench_rocm_provider_options: []
   tensorflow:
     # Build settings for validation/src/steps/workloads/tensorflow/rocm_wheel.py
     repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"
@@ -248,6 +255,7 @@ steps:
   onnxruntime_rocm_wheel: false
   onnxruntime_infer: false
   onnxruntime_tts_infer: false
+  onnxruntime_tts_benchmark: false
   onnxruntime_tts_flow_probe: false
   onnxruntime_migraphx_infer: false
   tensorflow_rocm_wheel: false

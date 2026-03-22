@@ -70,6 +70,11 @@ custom ROCm stack is usable both:
   - verify the workload respects `validation/workspace/cache/` and `validation/workspace/builds/`
   - run at least one targeted validation command with `--log`
   - when the goal is to expose a real downstream runtime bug, prefer a CPU-reference + ROCm pair so the failure is attributed to the ROCm stack rather than to the model fixture
+  - when the goal is performance triage for a real-model workload, keep the benchmark as an explicit profile/step under the same public `validation/validate.py` surface:
+    - do not add a new public wrapper under `validation/scripts/`
+    - keep in-tree and promoted performance runs separate via explicit profiles
+    - keep CPU and ROCm measurements on the same staged model / same fixtures / same seed
+    - if the benchmark exposes output-shape or semantic drift, treat that first as a correctness/stability issue, not as a pure speed result
   - for Piper/ORT real-model triage, keep the repro deterministic:
     - explicit staged model path
     - explicit real `ids` fixture
@@ -78,6 +83,7 @@ custom ROCm stack is usable both:
 - For promoted-system changes:
   - verify the promoted profile succeeds
   - verify runtime linkage/prefix points to `/opt/rocm` where applicable
+  - if a benchmark profile exists for the same workload, run that separately after the functional promoted profile, not instead of it
 
 ## Knowledge Capture
 
@@ -126,6 +132,11 @@ A correct end state for `validation/` means:
   - for ORT/Piper correctness issues, explicitly separate:
     - diagnostic CPU fallback overrides
     - GPU-only kernel findings
+  - for ORT/Piper performance issues, explicitly separate:
+    - session creation cost
+    - first-run cost
+    - repeated-run cost
+    - whether repeated runs remain semantically stable on ROCm
   - if the diagnosis used any of these debug hooks, record them explicitly:
     - `ORT_ROCM_FORCE_CPU_OP_NODES`
     - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES`

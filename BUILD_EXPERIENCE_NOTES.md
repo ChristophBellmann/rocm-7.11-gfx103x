@@ -69,6 +69,17 @@
      - `tensorflow-current.whl`
    - Consumer repos are expected to use only the promoted artifacts, not local build trees.
 
+0f. **2026-03-22: ORT/Piper performance triage must follow the validation workflow, not ad-hoc scripts**
+   - The `validation/` operating model matters for performance work just as much as for correctness work.
+   - Keep exactly one source of truth per run:
+     - one wheel source (in-tree or promoted),
+     - one ROCm runtime prefix,
+     - one staged model copy,
+     - one artifact root under `validation/workspace/runs/<run_id>/`.
+   - Run functional real-model validation first, then benchmark via a dedicated validation profile.
+   - For Piper/ORT on gfx1031, isolated benchmark child processes were necessary to avoid mixing CPU and ROCm session state and to keep run artifacts reproducible.
+   - If repeated ROCm runs on the same real model show output-shape drift, treat that as a stability/correctness investigation first; do not summarize it as a plain throughput result.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

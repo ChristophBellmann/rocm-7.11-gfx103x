@@ -106,9 +106,11 @@ Focused profiles:
 - ONNX Runtime ROCm wheel build: `onnxruntime`
 - ONNX Runtime in-tree ROCm wheel + inference test: `onnxruntime_in_tree`
 - ONNX Runtime in-tree real Piper TTS graph: `onnxruntime_in_tree_tts`
+- ONNX Runtime in-tree real Piper TTS CPU-vs-ROCm benchmark: `onnxruntime_in_tree_tts_benchmark`
 - ONNX Runtime in-tree ROCm wheel + MIGraphX EP inference test: `onnxruntime_migraphx_build`
 - ONNX Runtime promoted ROCm wheel from `/opt/rocm`: `onnxruntime_rocm711_promoted`
 - ONNX Runtime promoted real Piper TTS graph from `/opt/rocm`: `onnxruntime_rocm711_promoted_tts`
+- ONNX Runtime promoted real Piper TTS CPU-vs-ROCm benchmark: `onnxruntime_rocm711_promoted_tts_benchmark`
 - PyTorch GPU compute: `pytorch`
 - PyTorch in-tree ROCm enforcement: `pytorch_in_tree`
 - PyTorch ROCm 7.11 source build: `pytorch_rocm711_source`
@@ -147,8 +149,10 @@ python3 validation/validate.py --profile petsc --yes --power --log
 python3 validation/validate.py --profile onnxruntime --yes --log
 python3 validation/validate.py --profile onnxruntime_in_tree --yes --power --log
 python3 validation/validate.py --profile onnxruntime_in_tree_tts --yes --power --log
+python3 validation/validate.py --profile onnxruntime_in_tree_tts_benchmark --yes --log
 python3 validation/validate.py --profile onnxruntime_migraphx_build --yes --log
 python3 validation/validate.py --profile onnxruntime_rocm711_promoted_tts --yes --power --log
+python3 validation/validate.py --profile onnxruntime_rocm711_promoted_tts_benchmark --yes --log
 python3 validation/validate.py --profile pytorch --yes --power
 python3 validation/validate.py --profile tensorflow --yes --log
 ```
@@ -273,7 +277,7 @@ the custom ROCm stack produced by this repository.
 - Known fork reference (for reproducibility):
   - Repo: `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x`
   - Branch: `christoph/gfx1031-buildfixes`
-  - Commit: `22f739e`
+  - Commit: `d48fd80dd`
   - Release tag: `v1.22.2-rocm711-gfx1031-tlsfix1`
   - Release asset:
     - `https://github.com/ChristophBellmann/rocm-7.11-onnxruntime-gfx103x/releases/download/v1.22.2-rocm711-gfx1031-tlsfix1/onnxruntime_rocm-1.22.2-cp312-cp312-linux_x86_64.whl`
@@ -523,11 +527,39 @@ Current expected state for `onnxruntime_in_tree_tts` on a healthy stack:
   - for deterministic Piper validation, freeze `RandomNormalLike` nodes to
     dynamic zero tensors so the run follows real ROCm bugs instead of
     provider-local RNG drift
-- there is currently no accepted final GPU-only fix for the full real Piper TTS
-  graph on gfx1031
+- current accepted green path for full real Piper TTS on gfx1031:
+  - ORT ROCm provider fixes from the ONNX Runtime fork
+  - deterministic `RandomNormalLike` freezing in `validation`
 - CPU fallback overrides such as:
   - `ORT_ROCM_FORCE_CPU_OP_NODES='Mul@/dp/flows.'`
   are diagnostic only and must not be treated as the stack fix
+
+For performance triage there are now dedicated Piper benchmark profiles:
+- `onnxruntime_in_tree_tts_benchmark`
+- `onnxruntime_rocm711_promoted_tts_benchmark`
+
+These benchmark profiles keep the deterministic `RandomNormalLike` freeze, then
+measure real-case Piper timings in isolated child processes for:
+- session creation
+- one cold inference
+- one second inference after a single warm-up run
+
+The per-case JSON artifact is written to:
+- `validation/workspace/runs/<run_id>/artifacts/onnxruntime_tts_benchmark.json`
+
+Current March 21 2026 in-tree benchmark snapshot on gfx1031:
+- CPU create: about `743 ms`
+- CPU cold inference: about `45 ms`
+- CPU second-run inference: about `28 ms`
+- ROCm create: about `1089 ms`
+- ROCm cold inference: about `11895 ms`
+- ROCm second-run inference: about `3562 ms`
+- benchmark artifact: `validation/workspace/runs/2026-03-21_171622/artifacts/onnxruntime_tts_benchmark.json`
+
+That benchmark is intentionally diagnostic, not a pass/fail correctness gate:
+- cold CPU/ROCm measurement must succeed
+- second-run ROCm failures are recorded in the artifact, because on a 12 GiB
+  card they are part of the performance/stability picture for this real model
 
 Current March 2026 diagnosis snapshot:
 - the primary investigation site is `validation/`, not the consumer repo
