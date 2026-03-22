@@ -261,3 +261,7 @@ A correct end state for `validation/` means:
       under the same find-mode override while the final output still drifts,
       record that the remaining fault window has moved into the downstream
       decoder/output side rather than continuing to blame the duration path
+    - if a late decoder trace already shows the shortened length before
+      `/dec/conv_post/Conv`, record that as a decoder-feature-map fault rather
+      than a final-output-only issue and continue narrowing inside the last
+      decoder stack

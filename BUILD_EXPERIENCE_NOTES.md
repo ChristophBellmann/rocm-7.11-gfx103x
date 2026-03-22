@@ -303,6 +303,23 @@
      - and no longer on the top-level duration path either
      - so the remaining fault window has moved further downstream into the decoder/output side of the graph.
 
+0r. **2026-03-22: Under `MIOPEN_FIND_MODE=FAST`, `hey mogli` now localizes to the late decoder path before `conv_post`**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_decoderlate_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dec/resblocks.8/Add_1_output_0`
+     - `/dec/Add_4_output_0`
+     - `/dec/Add_5_output_0`
+     - `/dec/conv_post/Conv_output_0`
+     - `output`
+   - Result on repeated runs:
+     - iter 0: all late decoder tensors have length `14080`
+     - iter 1: all of those same tensors have already changed to length `13312`
+   - Current interpretation:
+     - the remaining `hey mogli` issue under `FAST` is no longer a pure final-output formatting problem
+     - it is already present in the late decoder feature maps before `/dec/conv_post/Conv`
+     - the next useful narrowing point is therefore inside the last decoder stack feeding `/dec/resblocks.8/Add_1_output_0`.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
