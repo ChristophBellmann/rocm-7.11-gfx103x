@@ -107,10 +107,12 @@ Focused profiles:
 - ONNX Runtime in-tree ROCm wheel + inference test: `onnxruntime_in_tree`
 - ONNX Runtime in-tree real Piper TTS graph: `onnxruntime_in_tree_tts`
 - ONNX Runtime in-tree real Piper TTS CPU-vs-ROCm benchmark: `onnxruntime_in_tree_tts_benchmark`
+- ONNX Runtime in-tree real Piper TTS steady-state probe: `onnxruntime_in_tree_tts_steady_state`
 - ONNX Runtime in-tree ROCm wheel + MIGraphX EP inference test: `onnxruntime_migraphx_build`
 - ONNX Runtime promoted ROCm wheel from `/opt/rocm`: `onnxruntime_rocm711_promoted`
 - ONNX Runtime promoted real Piper TTS graph from `/opt/rocm`: `onnxruntime_rocm711_promoted_tts`
 - ONNX Runtime promoted real Piper TTS CPU-vs-ROCm benchmark: `onnxruntime_rocm711_promoted_tts_benchmark`
+- ONNX Runtime promoted real Piper TTS steady-state probe: `onnxruntime_rocm711_promoted_tts_steady_state`
 - PyTorch GPU compute: `pytorch`
 - PyTorch in-tree ROCm enforcement: `pytorch_in_tree`
 - PyTorch ROCm 7.11 source build: `pytorch_rocm711_source`
@@ -150,9 +152,11 @@ python3 validation/validate.py --profile onnxruntime --yes --log
 python3 validation/validate.py --profile onnxruntime_in_tree --yes --power --log
 python3 validation/validate.py --profile onnxruntime_in_tree_tts --yes --power --log
 python3 validation/validate.py --profile onnxruntime_in_tree_tts_benchmark --yes --log
+python3 validation/validate.py --profile onnxruntime_in_tree_tts_steady_state --yes --log
 python3 validation/validate.py --profile onnxruntime_migraphx_build --yes --log
 python3 validation/validate.py --profile onnxruntime_rocm711_promoted_tts --yes --power --log
 python3 validation/validate.py --profile onnxruntime_rocm711_promoted_tts_benchmark --yes --log
+python3 validation/validate.py --profile onnxruntime_rocm711_promoted_tts_steady_state --yes --log
 python3 validation/validate.py --profile pytorch --yes --power
 python3 validation/validate.py --profile tensorflow --yes --log
 ```
@@ -560,6 +564,23 @@ That benchmark is intentionally diagnostic, not a pass/fail correctness gate:
 - cold CPU/ROCm measurement must succeed
 - second-run ROCm failures are recorded in the artifact, because on a 12 GiB
   card they are part of the performance/stability picture for this real model
+
+For repeated-run diagnosis there are also explicit steady-state profiles:
+- `onnxruntime_in_tree_tts_steady_state`
+- `onnxruntime_rocm711_promoted_tts_steady_state`
+
+These run one real staged case multiple times on the same session and write:
+- `validation/workspace/runs/<run_id>/artifacts/onnxruntime_tts_steady_state_probe.json`
+
+Current March 22 2026 steady-state finding for case `mogli`:
+- CPU stays stable for all 6 iterations at shape `[1, 1, 1, 11008]`
+- ROCm is not steady:
+  - iter 0: shape `[1, 1, 1, 11008]`, slow cold run
+  - iter 1: shape `[1, 1, 1, 11008]`, fast
+  - iter 2: same shape but already different statistics
+  - iter 3: `Reshape_1` runtime exception
+- this reproduces both in-tree and promoted, so it is currently treated as a
+  ROCm steady-state/runtime issue, not a promote-only wheel mismatch
 
 Current March 2026 diagnosis snapshot:
 - the primary investigation site is `validation/`, not the consumer repo

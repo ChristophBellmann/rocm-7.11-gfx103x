@@ -1703,6 +1703,223 @@ def _step_onnxruntime_tts_benchmark(
     return StepResult(build_dir, step_name, "OK", fmt_duration(total_ms), metric)
 
 
+def _step_onnxruntime_tts_steady_state_probe(
+    ctx: Context,
+    cfg: dict[str, Any],
+    build_dir: str,
+    rocm_dist: Path,
+    env: dict[str, str],
+    log: Path | None,
+) -> StepResult:
+    step_name = "ONNX Runtime Piper TTS Steady-State Probe"
+    resolved = _resolve_onnxruntime_tts_inputs(ctx, cfg, step_name)
+    if isinstance(resolved, StepResult):
+        return StepResult(build_dir, resolved.name, resolved.status, resolved.duration, resolved.metric)
+    wl, wheel, model, config_path = resolved
+    py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
+    if py is None:
+        return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
+    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
+    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+
+    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
+    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
+    if r_install.rc != 0:
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
+
+    loaded = _load_onnxruntime_tts_cases(ctx, wl, model, step_name)
+    if isinstance(loaded, StepResult):
+        return StepResult(build_dir, loaded.name, loaded.status, loaded.duration, loaded.metric)
+    cases, _case_file = loaded
+    case_label = str(wl.get("tts_steady_case_label", "mogli") or "").strip()
+    case = next((item for item in cases if str(item.get("label") or "").strip() == case_label), None)
+    if case is None:
+        return StepResult(build_dir, step_name, "FAIL", "0ms", f"unknown tts_steady_case_label: {case_label}")
+
+    seed = int(wl.get("tts_seed", 0))
+    iters = max(2, int(wl.get("tts_steady_iters", 6)))
+    timeout_s = max(60, int(cfg.get("timeouts_s", {}).get("onnxruntime_infer", wl.get("tts_steady_timeout_s", 900))))
+    freeze_randomnormal_like_zeros = bool(wl.get("tts_freeze_randomnormal_like_zeros", False))
+    rocm_provider_options = {"miopen_conv_use_max_workspace": "1"}
+    for item in _cfg_string_list(wl.get("tts_steady_rocm_provider_options")):
+        if "=" not in item:
+            return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_steady_rocm_provider_options entry: {item!r}")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_steady_rocm_provider_options entry: {item!r}")
+        rocm_provider_options[key] = value
+
+    artifact_dir = ctx.run_root / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / "onnxruntime_tts_steady_state_probe.json"
+    freeze_dur_ms = 0.0
+
+    with tempfile.TemporaryDirectory(prefix="rocm-validation-ort-tts-steady-") as td:
+        tdp = Path(td)
+        runnable_model = model
+        if freeze_randomnormal_like_zeros:
+            diag_py = _resolve_onnxruntime_tts_diag_python(ctx, run_env, py, log)
+            if diag_py is None:
+                return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), "no python with onnx+onnxruntime to freeze Piper RandomNormalLike nodes")
+            diag_script = ctx.repo_root / "validation" / "src" / "steps" / "workloads" / "onnxruntime" / "piper_tts_debug.py"
+            runnable_model = tdp / f"{model.stem}.rng_frozen.onnx"
+            freeze_cmd = [
+                diag_py,
+                str(diag_script),
+                "--model",
+                str(model),
+                "--freeze-dp-random-zeros",
+                "--write-frozen-model",
+                str(runnable_model),
+            ]
+            r_freeze = run_cmd(ctx.repo_root, run_env, freeze_cmd, 300, log)
+            freeze_dur_ms += r_freeze.dur_ms
+            if r_freeze.rc != 0:
+                return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + freeze_dur_ms), f"freeze_randomnormal_like rc={r_freeze.rc}")
+
+        child_script = tdp / "ort_tts_steady_probe_child.py"
+        child_script.write_text(
+            (
+                "import json\n"
+                "import os\n"
+                "import sys\n"
+                "import time\n"
+                "from pathlib import Path\n"
+                "import numpy as np\n"
+                "import onnxruntime as ort\n"
+                f"model = r'''{runnable_model}'''\n"
+                f"config_path = r'''{config_path}'''\n"
+                f"seed = {seed}\n"
+                f"iters = {iters}\n"
+                f"case = {json.dumps(case, sort_keys=True)}\n"
+                f"rocm_provider_options = {json.dumps(rocm_provider_options, sort_keys=True)}\n"
+                "provider_name = sys.argv[1]\n"
+                "def _dtype(type_name):\n"
+                "    if type_name == 'tensor(int64)': return np.int64\n"
+                "    if type_name == 'tensor(int32)': return np.int32\n"
+                "    if type_name == 'tensor(float)': return np.float32\n"
+                "    raise RuntimeError(f'unsupported Piper input dtype: {type_name}')\n"
+                "def build_feed(sess):\n"
+                "    token_ids = [int(v) for v in (case.get('ids') or [])]\n"
+                "    seq = np.asarray([token_ids], dtype=np.int64)\n"
+                "    lens = np.asarray([len(token_ids)], dtype=np.int64)\n"
+                "    scales = np.asarray(case['scales'], dtype=np.float32)\n"
+                "    feed = {}\n"
+                "    for inp in sess.get_inputs():\n"
+                "        dt = _dtype(inp.type)\n"
+                "        if inp.name == 'input':\n"
+                "            feed[inp.name] = seq.astype(dt, copy=False)\n"
+                "        elif inp.name == 'input_lengths':\n"
+                "            feed[inp.name] = lens.astype(dt, copy=False)\n"
+                "        elif inp.name == 'scales':\n"
+                "            feed[inp.name] = scales.astype(dt, copy=False)\n"
+                "        elif inp.name in {'sid', 'speaker_id'}:\n"
+                "            feed[inp.name] = np.asarray([0], dtype=dt)\n"
+                "        else:\n"
+                "            raise RuntimeError(f'unsupported Piper input name: {inp.name}')\n"
+                "    return feed\n"
+                "def rocm_lib_hint():\n"
+                "    try:\n"
+                "        with open('/proc/self/maps', 'r', encoding='utf-8', errors='ignore') as f:\n"
+                "            libs = sorted({line.strip().split()[5] for line in f if len(line.strip().split()) >= 6 and line.strip().split()[5].startswith('/') and '.so' in line.strip().split()[5]})\n"
+                "        preferred = ('libamdhip64.so', 'libMIOpen.so', 'librocblas.so')\n"
+                "        for needle in preferred:\n"
+                "            for p in libs:\n"
+                "                base = os.path.basename(p)\n"
+                "                if base == needle or base.startswith(needle + '.'):\n"
+                "                    return p\n"
+                "    except Exception:\n"
+                "        return ''\n"
+                "    return ''\n"
+                "if provider_name == 'cpu':\n"
+                "    providers = ['CPUExecutionProvider']\n"
+                "elif provider_name == 'rocm':\n"
+                "    providers = [('ROCMExecutionProvider', rocm_provider_options), 'CPUExecutionProvider']\n"
+                "else:\n"
+                "    raise RuntimeError(f'unsupported provider_name: {provider_name}')\n"
+                "ort.set_seed(seed)\n"
+                "np.random.seed(seed)\n"
+                "so = ort.SessionOptions()\n"
+                "so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL\n"
+                "sess = ort.InferenceSession(model, sess_options=so, providers=providers)\n"
+                "feed = build_feed(sess)\n"
+                "rows = []\n"
+                "for i in range(iters):\n"
+                "    try:\n"
+                "        t0 = time.perf_counter()\n"
+                "        out = sess.run(None, feed)\n"
+                "        dt = (time.perf_counter() - t0) * 1000.0\n"
+                "        arr = np.asarray(out[0], dtype=np.float32)\n"
+                "        rows.append({'iter': i, 'ok': True, 'ms': dt, 'shape': list(arr.shape), 'mean': float(np.mean(arr)) if arr.size else 0.0, 'std': float(np.std(arr)) if arr.size else 0.0})\n"
+                "    except Exception as exc:\n"
+                "        rows.append({'iter': i, 'ok': False, 'error_type': type(exc).__name__, 'error': str(exc)})\n"
+                "        break\n"
+                "print('ORT_TTS_STEADY_JSON=' + json.dumps({'provider_name': provider_name, 'session_providers': sess.get_providers(), 'hip_lib': rocm_lib_hint(), 'rows': rows}, sort_keys=True))\n"
+            ),
+            encoding="utf-8",
+        )
+
+        def run_child(provider_name: str) -> tuple[ProcResult, dict[str, Any] | None]:
+            res = run_cmd(ctx.repo_root, run_env, [py, str(child_script), provider_name], timeout_s, log)
+            match = re.search(r"ORT_TTS_STEADY_JSON=(\{.*\})", res.out + "\n" + res.err)
+            if not match:
+                return res, None
+            return res, json.loads(match.group(1))
+
+        cpu_run, cpu_data = run_child("cpu")
+        total_ms = r_install.dur_ms + freeze_dur_ms + cpu_run.dur_ms
+        if cpu_data is None:
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_ms), f"cpu steady probe rc={cpu_run.rc}")
+        rocm_run, rocm_data = run_child("rocm")
+        total_ms += rocm_run.dur_ms
+        if rocm_data is None:
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_ms), f"rocm steady probe rc={rocm_run.rc}")
+
+    rocm_providers = rocm_data.get("session_providers") or []
+    if "ROCMExecutionProvider" not in rocm_providers:
+        return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_ms), f"ROCMExecutionProvider missing from steady probe session providers: {rocm_providers}")
+    hip_lib = str(rocm_data.get("hip_lib") or "").strip()
+    req = str(wl.get("require_rocm_prefix", "") or "").strip()
+    if req:
+        expected = str(rocm_dist) if req == "in-tree" else req.rstrip("/")
+        if not hip_lib:
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_ms), f"could not determine loaded ROCm runtime lib (libamdhip64/libMIOpen/librocblas); expected prefix: {expected}")
+        if not hip_lib.startswith(expected + "/"):
+            return StepResult(build_dir, step_name, "FAIL", fmt_duration(total_ms), f"ROCm runtime lib not from expected prefix: {expected}; hip_lib={hip_lib}")
+
+    data = {
+        "model": str(model),
+        "model_config": str(config_path),
+        "case_label": case_label,
+        "iters": iters,
+        "cpu": cpu_data,
+        "rocm": rocm_data,
+    }
+    artifact_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _unique_shapes(payload: dict[str, Any]) -> list[list[int]]:
+        seen: list[list[int]] = []
+        for row in payload.get("rows") or []:
+            shape = [int(v) for v in (row.get("shape") or [])]
+            if shape not in seen:
+                seen.append(shape)
+        return seen
+
+    cpu_shapes = _unique_shapes(cpu_data)
+    rocm_shapes = _unique_shapes(rocm_data)
+    metric = (
+        f"case={case_label} iters={iters} "
+        f"cpu_shapes={cpu_shapes} rocm_shapes={rocm_shapes} "
+        f"rocm_shape_stable={'yes' if len(rocm_shapes) == 1 else 'no'}"
+    )
+    if hip_lib:
+        metric += f" hip_lib={hip_lib}"
+    metric += f" artifact={artifact_path.name} rocm_env={'in-tree' if use_in_tree else 'system'}"
+    return StepResult(build_dir, step_name, "OK", fmt_duration(total_ms), metric)
+
+
 def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     step_name = "ONNX Runtime inference (MIGraphX EP)"
     resolved = _resolve_onnxruntime_infer_inputs(ctx, cfg, step_name)
@@ -2034,6 +2251,7 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("onnxruntime_infer", "onnxruntime_infer", "ONNX Runtime inference (ROCm)", "typ. ~5s (continuous)", _step_onnxruntime_infer)
     add("onnxruntime_tts_infer", "onnxruntime_tts_infer", "ONNX Runtime Piper TTS (ROCm)", "typ. ~5s (continuous; real Piper graph)", _step_onnxruntime_tts_infer)
     add("onnxruntime_tts_benchmark", "onnxruntime_tts_benchmark", "ONNX Runtime Piper TTS Benchmark", "typ. ~10-60s (CPU vs ROCm real-model timing)", _step_onnxruntime_tts_benchmark)
+    add("onnxruntime_tts_steady_state_probe", "onnxruntime_tts_steady_state_probe", "ONNX Runtime Piper TTS Steady-State Probe", "typ. ~10-60s (repeated-run real-model diagnosis)", _step_onnxruntime_tts_steady_state_probe)
     add("onnxruntime_tts_flow_probe", "onnxruntime_tts_flow_probe", "ONNX Runtime Piper TTS Flow Probe (ROCm)", "typ. ~10-60s (diagnostic subgraph repro)", _step_onnxruntime_tts_flow_probe)
     add("onnxruntime_migraphx_infer", "onnxruntime_migraphx_infer", "ONNX Runtime inference (MIGraphX EP)", "typ. ~5s (continuous)", _step_onnxruntime_migraphx_infer)
     add("tensorflow_rocm_wheel", "tensorflow_rocm_wheel", "TensorFlow (ROCm) wheel build", "hours (clone/build)", step_tensorflow_rocm_wheel)

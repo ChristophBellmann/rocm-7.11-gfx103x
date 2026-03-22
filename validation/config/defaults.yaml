@@ -221,6 +221,10 @@ workloads:
     tts_bench_iters: 20
     tts_bench_timeout_s: 900
     tts_bench_rocm_provider_options: []
+    tts_steady_case_label: "mogli"
+    tts_steady_iters: 6
+    tts_steady_timeout_s: 900
+    tts_steady_rocm_provider_options: []
   tensorflow:
     # Build settings for validation/src/steps/workloads/tensorflow/rocm_wheel.py
     repo_url: "https://github.com/ChristophBellmann/rocm-7.11-tensorflow-gfx103x.git"
@@ -256,6 +260,7 @@ steps:
   onnxruntime_infer: false
   onnxruntime_tts_infer: false
   onnxruntime_tts_benchmark: false
+  onnxruntime_tts_steady_state_probe: false
   onnxruntime_tts_flow_probe: false
   onnxruntime_migraphx_infer: false
   tensorflow_rocm_wheel: false

@@ -1,0 +1,31 @@
+# Diagnose repeated-run behavior for the real staged Piper ONNX model against
+# the promoted ROCm stack under /opt/rocm.
+run:
+  profile: onnxruntime_rocm711_promoted_tts_steady_state
+  ask_before_downloads: false
+  downloads_enabled: false
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+  pytorch: false
+  petsc_hip: false
+  onnxruntime_rocm_wheel: false
+  onnxruntime_infer: false
+  onnxruntime_tts_infer: false
+  onnxruntime_tts_benchmark: false
+  onnxruntime_tts_steady_state_probe: true
+  onnxruntime_migraphx_infer: false
+  tensorflow_rocm_wheel: false
+
+workloads:
+  onnxruntime:
+    wheel_out_dir: "/opt/rocm/wheels/onnxruntime_rocm711"
+    use_in_tree_rocm: false
+    require_rocm_prefix: "/opt/rocm"

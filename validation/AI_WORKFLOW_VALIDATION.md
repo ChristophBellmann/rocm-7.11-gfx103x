@@ -76,6 +76,7 @@ custom ROCm stack is usable both:
     - keep in-tree and promoted performance runs separate via explicit profiles
     - keep CPU and ROCm measurements on the same staged model / same fixtures / same seed
     - if the benchmark exposes output-shape or semantic drift, treat that first as a correctness/stability issue, not as a pure speed result
+    - if repeated-run stability itself is under question, add an explicit repeated-run probe profile instead of overloading the main correctness profile
   - for Piper/ORT real-model triage, keep the repro deterministic:
     - explicit staged model path
     - explicit real `ids` fixture
