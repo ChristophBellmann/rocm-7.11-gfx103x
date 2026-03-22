@@ -256,4 +256,8 @@ A correct end state for `validation/` means:
       output still drifts for another real case, record that split explicitly:
       - treat the local line as narrowed/partially healed
       - move the remaining fault window downstream or sideways instead of
-        attributing the remaining drift to the already-stable traced tensors
+      attributing the remaining drift to the already-stable traced tensors
+    - if both a local `flow7` line and the top-level duration path stay stable
+      under the same find-mode override while the final output still drifts,
+      record that the remaining fault window has moved into the downstream
+      decoder/output side rather than continuing to blame the duration path

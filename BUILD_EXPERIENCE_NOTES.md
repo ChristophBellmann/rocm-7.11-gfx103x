@@ -285,6 +285,24 @@
      - `MIOPEN_FIND_MODE=FAST` appears to stabilize this local `flow7` mask/cumsum line for both `mogli` and `hey mogli`
      - the remaining `hey mogli` drift under `FAST` therefore sits further downstream or in a different branch than that traced line.
 
+0q. **2026-03-22: Under `MIOPEN_FIND_MODE=FAST`, the remaining `hey mogli` drift is also downstream of the global duration path**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_duration_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dp/flows.3/Split_output_0`
+     - `/dp/flows.3/Split_output_1`
+     - `/dp/flows.0/Mul_1_output_0`
+     - `/Cast_output_0`
+     - `/CumSum_output_0`
+   - Result on `hey mogli`, `MIOPEN_FIND_MODE=FAST`, repeated full-graph runs:
+     - iter 0: expected duration family, `Cast=55`, stable `CumSum`
+     - iter 1: the same traced outputs stay stable, with only tiny FP noise
+   - Combined with the final-output drift from `piper_repeat_output_find_fast_hey_mogli.json`, this means:
+     - under `FAST`, the remaining `hey mogli` fault is no longer on the traced
+       `flow7` mask/cumsum line
+     - and no longer on the top-level duration path either
+     - so the remaining fault window has moved further downstream into the decoder/output side of the graph.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
