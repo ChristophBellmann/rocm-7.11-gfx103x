@@ -265,6 +265,26 @@
      - the Conv find/tuning mode is not neutral here; it strongly affects both speed and stability
      - but `FAST` is not yet the accepted fix, because it only partially heals the real two-case benchmark.
 
+0p. **2026-03-22: Under `MIOPEN_FIND_MODE=FAST`, `hey mogli` still drifts, but not through the traced `GatherND_3 -> ... -> Pad_2` line**
+   - Final-output repeat trace:
+     - `validation/workspace/debug/piper_repeat_output_find_fast_hey_mogli.json`
+   - Direct mask/cumsum trace:
+     - `validation/workspace/debug/piper_repeat_cumsum1_find_fast_hey_mogli.json`
+   - Current result:
+     - final output under `FAST` still drifts on the second run:
+       - iter 0: shape `[1,1,1,14080]`, about `14.1 s`
+       - iter 1: shape `[1,1,1,12800]`, about `4.05 s`
+     - but the traced local line stays stable across both runs:
+       - `/dp/flows.7/GatherND_3_output_0`
+       - `/dp/flows.7/Softmax_1_output_0`
+       - `/dp/flows.7/Mul_16_output_0`
+       - `/dp/flows.7/Add_11_output_0`
+       - `/dp/flows.7/CumSum_1_output_0`
+       - `/dp/flows.7/Pad_2_output_0`
+   - Updated interpretation:
+     - `MIOPEN_FIND_MODE=FAST` appears to stabilize this local `flow7` mask/cumsum line for both `mogli` and `hey mogli`
+     - the remaining `hey mogli` drift under `FAST` therefore sits further downstream or in a different branch than that traced line.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

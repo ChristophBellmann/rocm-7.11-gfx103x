@@ -252,3 +252,8 @@ A correct end state for `validation/` means:
       stability and reuse timing, record that separately from the baseline
       benchmark and do not over-promote it to a fix until the full real-case
       benchmark agrees across the staged cases
+    - if a find-mode change stabilizes one traced local line but the final
+      output still drifts for another real case, record that split explicitly:
+      - treat the local line as narrowed/partially healed
+      - move the remaining fault window downstream or sideways instead of
+        attributing the remaining drift to the already-stable traced tensors
