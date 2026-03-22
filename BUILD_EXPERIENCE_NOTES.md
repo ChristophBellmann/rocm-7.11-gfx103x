@@ -108,6 +108,31 @@
      - `hey mogli`: cold `[1,1,1,14080]` -> second run `[1,1,1,12800]`
    - Because the same drift appears both in-tree and promoted, the next diagnosis target is a ROCm steady-state/runtime behavior issue, not a promote-only packaging mismatch.
 
+0i. **2026-03-22: Steady-state ROCm Piper issue reproduces as a repeated-run runtime problem, not only as a slow benchmark**
+   - Dedicated validation profiles now exist:
+     - `onnxruntime_in_tree_tts_steady_state`
+     - `onnxruntime_rocm711_promoted_tts_steady_state`
+   - Serial probe runs:
+     - in-tree: `validation/workspace/runs/2026-03-22_204403`
+     - promoted: `validation/workspace/runs/2026-03-22_204446`
+   - Case `mogli`, 6 runs on the same session:
+     - CPU remains stable for all iterations at shape `[1,1,1,11008]`
+     - ROCm reproduces a repeated-run failure pattern under both prefixes
+   - Current strongest local reproduction:
+     - iter 0: cold, correct shape
+     - iter 1: still correct
+     - iter 2: same shape but changed output statistics
+     - iter 3+: either `Reshape_1` runtime failure or a shape jump in the duration path
+   - Follow-up ad-hoc matrix on the same frozen model:
+     - `ORT_DISABLE_ALL` delays the drift but does not eliminate it
+     - `ORT_ENABLE_BASIC` and `ORT_ENABLE_ALL` both still drift
+     - `ORT_ROCM_DISABLE_FAST_REDUCTION=1` also does not eliminate the repeated-run drift
+   - Interpretation:
+     - this is not just promote-path packaging
+     - not just graph optimization level
+     - not just the known fast-reduction bug family
+     - current best hypothesis remains a ROCm EP steady-state / lifetime / execution-order issue on the real Piper graph
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
