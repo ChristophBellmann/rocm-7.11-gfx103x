@@ -290,3 +290,7 @@ A correct end state for `validation/` means:
     - if the shortening is already present at `/dec/conv_pre/Conv_output_0`,
       treat the whole decoder as downstream propagation and move the fault
       window to the tensor feeding the decoder entry
+    - if a local upstream trace then keeps that handoff tensor stable while a
+      broader downstream trace still sees it shortened, record that explicitly
+      as topology-/lifetime-sensitive behavior at the boundary instead of
+      claiming a standalone kernel defect too early

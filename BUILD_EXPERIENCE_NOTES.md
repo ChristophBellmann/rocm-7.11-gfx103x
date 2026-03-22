@@ -474,6 +474,34 @@
    - The next narrowing point is therefore upstream of the decoder entry, at the
      tensor feeding `/dec/conv_pre/Conv`.
 
+0z. **2026-03-22: The pre-decoder boundary is now explicitly topology-sensitive under `FAST`**
+   - Direct decoder-input trace:
+     - `validation/workspace/debug/piper_repeat_decoder_inputs_find_fast_hey_mogli.json`
+   - Direct flow-concat-input trace:
+     - `validation/workspace/debug/piper_repeat_flow_concat_inputs_find_fast_hey_mogli.json`
+   - Findings:
+     - in the decoder-input trace:
+       - `/flow/flows.0/Concat_output_0`
+       - `/Mul_7_output_0`
+       - `/dec/conv_pre/Conv_output_0`
+       all shorten from length `55` to `52` on iter 1, while `/Cast_2_output_0`
+       stays as an all-ones mask with the matching shortened length
+     - in the more local flow-concat trace over
+       - `/Transpose_3_output_0`
+       - `/Mul_5_output_0`
+       - `/Gather_output_0`
+       - `/Mul_6_output_0`
+       - `/flow/flows.0/Concat_output_0`
+       the traced tensors stay numerically stable across the two runs and
+       `Concat_output_0` stays at length `55`
+   - Current interpretation:
+     - the remaining `FAST`-mode `hey mogli` bug has now reached the same class
+       of topology-/lifetime-sensitive behavior seen earlier in the `flow7`
+       narrowing
+     - the current fault window sits at the handoff between the flow output path
+       and the decoder entry, not yet as a proven standalone bare `Concat`,
+       `Mul_7`, or `conv_pre` kernel defect.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
