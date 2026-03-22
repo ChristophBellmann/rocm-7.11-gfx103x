@@ -405,6 +405,27 @@
      - `resblocks.3` and `resblocks.4` are again downstream propagation
      - the next narrowing point is the stage feeding `ups.1`.
 
+0w. **2026-03-22: The remaining `FAST`-mode `hey mogli` shortening starts before `ups.1`, already at `Add_1 -> Div -> LeakyRelu_1`**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_ups1input_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dec/Add_1_output_0`
+     - `/dec/Div_output_0`
+     - `/dec/LeakyRelu_1_output_0`
+     - `/dec/ups.1/ConvTranspose_output_0`
+   - Result on repeated runs:
+     - iter 0:
+       - `/dec/Add_1_output_0` length `440`
+       - `/dec/ups.1/ConvTranspose_output_0` length `3520`
+     - iter 1:
+       - `/dec/Add_1_output_0` shortens to `400`
+       - `/dec/Div_output_0` and `/dec/LeakyRelu_1_output_0` also shorten to `400`
+       - `/dec/ups.1/ConvTranspose_output_0` correspondingly shortens to `3200`
+   - Current earliest proven shared shortened tensor in the remaining branch:
+     - `/dec/Add_1_output_0`
+   - The next narrowing point is therefore the stage feeding `/dec/Add_1_output_0`,
+     not `Div`, `LeakyRelu_1`, or `ups.1`.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

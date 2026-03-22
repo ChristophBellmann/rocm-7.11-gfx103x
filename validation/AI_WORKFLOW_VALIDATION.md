@@ -280,3 +280,7 @@ A correct end state for `validation/` means:
       input tensor (for example `/dec/ups.1/ConvTranspose_output_0`), move the
       fault window again to that shared upstream stage and treat the branch
       blocks as propagation only
+    - if the shortened length is already present one stage before that shared
+      upsampling point (for example at `/dec/Add_1_output_0` before
+      `/dec/ups.1/ConvTranspose_output_0`), move the fault window further
+      upstream again and treat `Div`/activation/upsampling as propagation only
