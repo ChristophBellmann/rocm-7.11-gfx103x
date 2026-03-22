@@ -383,6 +383,28 @@
      - the next narrowing point should move further upstream into the decoder
        blocks before `resblocks.3` and `resblocks.4/Add_1`.
 
+0v. **2026-03-22: The shared upstream tensor feeding both `resblocks.3` and `resblocks.4` is already shortened under `FAST`**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_ups1branches_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dec/ups.1/ConvTranspose_output_0`
+     - `/dec/resblocks.3/Add_output_0`
+     - `/dec/resblocks.3/Add_1_output_0`
+     - `/dec/resblocks.4/Add_output_0`
+     - `/dec/resblocks.4/Add_1_output_0`
+   - Result on repeated runs:
+     - iter 0:
+       - `/dec/ups.1/ConvTranspose_output_0` has length `3520`
+       - both traced branch outputs also have length `3520`
+     - iter 1:
+       - `/dec/ups.1/ConvTranspose_output_0` is already shortened to `3328`
+       - both `resblocks.3` and `resblocks.4` branch outputs shorten to `3328`
+   - Updated interpretation:
+     - the first currently proven shared shortened tensor for the remaining
+       `FAST`-mode `hey mogli` branch is `/dec/ups.1/ConvTranspose_output_0`
+     - `resblocks.3` and `resblocks.4` are again downstream propagation
+     - the next narrowing point is the stage feeding `ups.1`.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

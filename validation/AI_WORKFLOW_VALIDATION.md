@@ -276,3 +276,7 @@ A correct end state for `validation/` means:
     - if both source branches feeding that aggregation are already shortened,
       record the aggregation node as downstream propagation only and move the
       fault window further upstream into the branch-local decoder blocks
+    - if those branch-local decoder blocks share an already-shortened common
+      input tensor (for example `/dec/ups.1/ConvTranspose_output_0`), move the
+      fault window again to that shared upstream stage and treat the branch
+      blocks as propagation only
