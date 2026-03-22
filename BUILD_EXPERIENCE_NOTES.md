@@ -218,6 +218,27 @@
      - the fault window still includes the `flow7` mask/ramp region
      - but the bug behaves like topology-/lifetime-/execution-order-sensitive ROCm EP state, not like a single standalone `Pad_2`, `CumSum_1`, or `Softmax_1` kernel defect.
 
+0n. **2026-03-22: ORT profiling shows the Piper slowdown is overwhelmingly in ROCm `Conv`, not in Memcpy or CPU fallback**
+   - Reference benchmark runs:
+     - in-tree: `validation/workspace/runs/2026-03-22_203627`
+     - promoted: `validation/workspace/runs/2026-03-22_203450`
+   - The two benchmark states agree closely:
+     - CPU cold about `34-40 ms`
+     - CPU reuse about `31-33 ms`
+     - ROCm cold about `13.2-13.4 s`
+     - ROCm reuse about `4.0 s`
+   - Reference ORT profile used for timing attribution:
+     - `validation/workspace/debug/onnxruntime_tts_profiles/build-stage2_onnxruntime_tts_profile_2026-03-22_20-33-35.json`
+   - Current attribution from that profile:
+     - `ROCMExecutionProvider` node time about `30198 ms`
+     - `CPUExecutionProvider` node time about `76 ms`
+     - `Conv` alone accounts for about `29598 ms`
+     - total `Memcpy*` events account for only about `7.7 ms`
+   - Current interpretation:
+     - the large slowdown is not explained by host/device copies
+     - it is not primarily a CPU fallback story either
+     - the performance problem sits in the ROCm convolution path itself, on the same real Piper graph that also shows repeated-run instability.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

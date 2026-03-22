@@ -243,3 +243,8 @@ A correct end state for `validation/` means:
         - `validation/workspace/debug/piper_steady_repeat_cumsum1line_trace.json`
           keeps `GatherND_3 -> ... -> Pad_2` stable through iter 2 and then
           jumps straight to the later `/Reshape_1` failure
+    - for ORT/Piper performance triage, if the benchmark and ORT profile agree
+      that almost all node time sits in `ROCMExecutionProvider` `Conv` while
+      `Memcpy*` time remains tiny, record that explicitly as a ROCm conv-path
+      performance issue rather than summarizing it as transfer overhead or CPU
+      fallback
