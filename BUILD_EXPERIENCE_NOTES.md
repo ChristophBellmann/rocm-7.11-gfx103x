@@ -338,6 +338,31 @@
      - the earliest currently proven shortened tensor in this late decoder branch is `/dec/ups.2/ConvTranspose_output_0`
      - the next narrowing point should therefore be the last upsampling stage feeding `ups.2`.
 
+0t. **2026-03-22: The shortened late-decoder branch is already visible before `ups.2`, at `Add_2/Add_3 -> Div_1 -> LeakyRelu_2`**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_ups2input_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dec/Add_2_output_0`
+     - `/dec/resblocks.5/Add_1_output_0`
+     - `/dec/Add_3_output_0`
+     - `/dec/Div_1_output_0`
+     - `/dec/LeakyRelu_2_output_0`
+     - `/dec/ups.2/ConvTranspose_output_0`
+   - Result on repeated runs:
+     - iter 0:
+       - `/dec/Add_2_output_0` etc. have length `3520`
+       - `/dec/ups.2/ConvTranspose_output_0` has length `14080`
+     - iter 1:
+       - `/dec/Add_2_output_0`, `/dec/resblocks.5/Add_1_output_0`,
+         `/dec/Add_3_output_0`, `/dec/Div_1_output_0`, and
+         `/dec/LeakyRelu_2_output_0` are already shortened to `3200`
+       - `/dec/ups.2/ConvTranspose_output_0` correspondingly shortens to `12800`
+   - Current earliest proven shortened tensor in the remaining `FAST`-mode
+     `hey mogli` branch:
+     - `/dec/Add_2_output_0`
+   - The next narrowing point is therefore inside the preceding decoder
+     aggregation feeding `/dec/Add_2_output_0`, not in `ups.2` itself.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

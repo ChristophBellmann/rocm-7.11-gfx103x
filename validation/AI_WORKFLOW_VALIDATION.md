@@ -268,3 +268,8 @@ A correct end state for `validation/` means:
     - if the same shortened length is already present at the input of that last
       decoder stack (for example at `/dec/ups.2/ConvTranspose_output_0`), move
       the fault window upstream again to the corresponding upsampling stage
+    - if the shortened length is already present one stage before that
+      upsampling op (for example in `/dec/Add_2_output_0` before
+      `/dec/ups.2/ConvTranspose_output_0`), treat the upsampling op as
+      downstream propagation and move the fault window to the preceding decoder
+      aggregation stage
