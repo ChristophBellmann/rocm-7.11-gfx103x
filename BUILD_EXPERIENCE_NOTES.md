@@ -149,6 +149,29 @@
      - iter 4-5 stay in that blown-up family
    - This places the repeated-run transition upstream of `Reshape_1` and inside the same top-level duration path that was already known from the one-shot correctness bug family.
 
+0k. **2026-03-22: Repeated-run narrowing now brackets the transition between early `flow7` tensors and later `flows.3`/duration tensors**
+   - Repeat-trace artifacts:
+     - `validation/workspace/debug/piper_steady_repeat_flow7_trace.json`
+     - `validation/workspace/debug/piper_steady_repeat_upstream_trace.json`
+     - `validation/workspace/debug/piper_steady_repeat_cumsum_trace.json`
+   - Current narrowing result on `mogli`, ROCm, `ORT_ENABLE_ALL`:
+     - early `flow7` outputs such as
+       - `/dp/Mul_output_0`
+       - `/dp/flows.7/convs/Add_output_0`
+       - `/dp/flows.7/convs/Add_3_output_0`
+       - `/dp/flows.7/convs/norms_2.0/Div_output_0`
+       remain stable for iterations `0..2`
+     - later outputs already flip on iter `3`, including
+       - `/dp/flows.3/Split_output_0`
+       - `/dp/flows.4/Slice_output_0`
+       - `/dp/flows.0/Mul_1_output_0`
+       - `/Cast_output_0`
+       - `/CumSum_output_0`
+   - So the steady-state transition is currently bracketed:
+     - downstream of the traced early `flow7` tensors
+     - upstream of the known `flows.3` / duration path tensors
+   - This further supports a graph-lifetime / execution-order style ROCm EP issue rather than a single bare top-level `Cast` or `Reshape` bug.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

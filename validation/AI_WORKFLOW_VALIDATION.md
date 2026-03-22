@@ -142,6 +142,7 @@ A correct end state for `validation/` means:
   - if the same ORT/Piper benchmark behavior reproduces both in-tree and under the matching `*_promoted` profile, treat it as a stack/runtime behavior issue first, not as a promote-path packaging issue
   - if `ORT_DISABLE_ALL` or `ORT_ROCM_DISABLE_FAST_REDUCTION=1` only shifts the iteration at which repeated-run drift appears, record that as a narrowing result, not as a fix
   - for repeated-run ORT/Piper diagnosis, prefer extending the existing internal helper under `validation/src/steps/workloads/onnxruntime/piper_tts_debug.py` over introducing a new public wrapper
+  - when repeated-run traces of earlier and later tensors disagree, record the bracket explicitly as the current fault window instead of attributing the bug to the first late tensor that visibly explodes
   - if the diagnosis used any of these debug hooks, record them explicitly:
     - `ORT_ROCM_FORCE_CPU_OP_NODES`
     - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES`
