@@ -426,6 +426,29 @@
    - The next narrowing point is therefore the stage feeding `/dec/Add_1_output_0`,
      not `Div`, `LeakyRelu_1`, or `ups.1`.
 
+0x. **2026-03-22: All three source branches feeding `Add_1` are already shortened under `FAST`**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_add1sources_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dec/resblocks.0/Add_1_output_0`
+     - `/dec/resblocks.1/Add_1_output_0`
+     - `/dec/Add_output_0`
+     - `/dec/resblocks.2/Add_1_output_0`
+     - `/dec/Add_1_output_0`
+   - Result on repeated runs:
+     - iter 0: all traced tensors have length `440`
+     - iter 1:
+       - `/dec/resblocks.0/Add_1_output_0` shortens to `400`
+       - `/dec/resblocks.1/Add_1_output_0` shortens to `400`
+       - `/dec/resblocks.2/Add_1_output_0` shortens to `400`
+       - `/dec/Add_output_0` and `/dec/Add_1_output_0` correspondingly shorten to `400`
+   - Updated interpretation:
+     - `Add_1` is only the next shared aggregation point, not the root cause
+     - the remaining `FAST`-mode `hey mogli` shortening is already present in
+       all three upstream decoder branches feeding that merge
+     - the next narrowing point has to move further upstream again, toward the
+       shared stage feeding the early decoder blocks.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
