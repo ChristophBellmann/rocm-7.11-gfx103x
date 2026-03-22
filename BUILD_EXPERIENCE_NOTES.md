@@ -239,6 +239,32 @@
      - it is not primarily a CPU fallback story either
      - the performance problem sits in the ROCm convolution path itself, on the same real Piper graph that also shows repeated-run instability.
 
+0o. **2026-03-22: `MIOPEN_FIND_MODE` materially changes the Piper ROCm result, but `FAST` is only a partial improvement**
+   - Serial one-case repeat traces on the real staged model:
+     - `validation/workspace/debug/piper_repeat_output_find_fast_serial.json`
+     - `validation/workspace/debug/piper_repeat_output_find_fast_serial3.json`
+     - `validation/workspace/debug/piper_repeat_output_find_normal_serial.json`
+   - Current one-case result on `mogli`, `miopen_conv_use_max_workspace=1`:
+     - `MIOPEN_FIND_MODE=FAST`
+       - cold about `34.3 s` in the 2-run probe / `18.0 s` in the 3-run probe
+       - repeated runs stay at shape `[1,1,1,11008]`
+       - repeated runs then fall to about `15-17 ms`
+     - `MIOPEN_FIND_MODE=NORMAL`
+       - cold about `14.7 s`
+       - second run jumps to shape `[1,1,1,808704]`
+       - second run also slows to about `57.4 s`
+   - Serial full validation benchmark with `MIOPEN_FIND_MODE=FAST`:
+     - `validation/workspace/runs/2026-03-22_211054`
+   - Benchmark result under `FAST` is mixed:
+     - `rocm_reuse_ms` improves from about `3981 ms` to about `2138 ms`
+     - `mogli` reuse becomes fast and shape-stable:
+       - about `18.3 ms`, shape `[1,1,1,11008]`
+     - `hey mogli` still remains slow and drifts:
+       - about `4258 ms`, shape `[1,1,1,13312]`
+   - Current interpretation:
+     - the Conv find/tuning mode is not neutral here; it strongly affects both speed and stability
+     - but `FAST` is not yet the accepted fix, because it only partially heals the real two-case benchmark.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

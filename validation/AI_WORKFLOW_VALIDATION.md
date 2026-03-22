@@ -248,3 +248,7 @@ A correct end state for `validation/` means:
       `Memcpy*` time remains tiny, record that explicitly as a ROCm conv-path
       performance issue rather than summarizing it as transfer overhead or CPU
       fallback
+    - if a MIOpen find/tuning mode materially changes both repeated-run
+      stability and reuse timing, record that separately from the baseline
+      benchmark and do not over-promote it to a fix until the full real-case
+      benchmark agrees across the staged cases
