@@ -142,6 +142,9 @@ A correct end state for `validation/` means:
   - if the same ORT/Piper benchmark behavior reproduces both in-tree and under the matching `*_promoted` profile, treat it as a stack/runtime behavior issue first, not as a promote-path packaging issue
   - if `ORT_DISABLE_ALL` or `ORT_ROCM_DISABLE_FAST_REDUCTION=1` only shifts the iteration at which repeated-run drift appears, record that as a narrowing result, not as a fix
   - for repeated-run ORT/Piper diagnosis, prefer extending the existing internal helper under `validation/src/steps/workloads/onnxruntime/piper_tts_debug.py` over introducing a new public wrapper
+  - if a Piper benchmark or steady-state diagnosis needs extra runtime env, thread it through workload config instead of ad-hoc shell wrappers:
+    - `tts_bench_env`
+    - `tts_steady_env`
   - when repeated-run traces of earlier and later tensors disagree, record the bracket explicitly as the current fault window instead of attributing the bug to the first late tensor that visibly explodes
   - if the diagnosis used any of these debug hooks, record them explicitly:
     - `ORT_ROCM_FORCE_CPU_OP_NODES`
@@ -186,6 +189,15 @@ A correct end state for `validation/` means:
     - the March 2026 green TTS validation path now depends on two fixes:
       - the ORT ROCm workspace-search fix in the provider
       - deterministic freezing of Piper `RandomNormalLike` nodes in validation
+    - current strongest March 22 2026 repeated-run root-cause statement:
+      - one-shot ROCm infer can be correct while repeated runs on the same
+        `InferenceSession` drift
+      - recreating a fresh ROCm session per run stays stable on the same frozen
+        Piper case
+      - forcing `ConvTranspose` to CPU does not fix the drift
+      - forcing all `Conv` ops to CPU does fix the drift
+      - therefore the primary faulty op family is the ROCm `Conv` path under
+        session reuse, not the `ConvTranspose` path
     - the last large post-workspace mismatch was traced to the second
       `/RandomNormalLike` node in the `/flow` branch, not to a remaining
       decoder/conv kernel correctness bug

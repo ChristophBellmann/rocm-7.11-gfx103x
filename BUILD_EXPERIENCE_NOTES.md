@@ -934,3 +934,28 @@
      - the ORT wheel build path now matches the repo-wide policy better:
        custom in-tree ROCm by default, and ccache-backed incremental builds when
        available.
+
+50. **2026-03-22: Piper repeated-run slowdown/drift is primarily a reused ROCm `Conv` session-state problem**
+   - Strongest discriminators on the frozen real Piper case:
+     - reusing the same ROCm `InferenceSession` drifts on repeated runs
+     - recreating a fresh ROCm session per run stays stable on the same case
+   - `MIOPEN_FIND_MODE=FAST` changes the behavior materially, but does not by
+     itself fix repeated-run correctness.
+   - `enable_mem_pattern=False` can stabilize some narrow internal traces, but
+     does not fix the full repeated-run output by itself. So memory pattern
+     influences the symptom, but is not the sole root cause.
+   - Forcing `ConvTranspose` to CPU is not sufficient.
+   - Forcing all `Conv` ops to CPU via `ORT_ROCM_FORCE_CPU_OPS=Conv` makes the
+     repeated full-model run stable again.
+   - Forcing only decoder `Conv` nodes to CPU via
+     `ORT_ROCM_FORCE_CPU_OP_NODES=Conv@/dec/` stabilizes `hey mogli`, but is
+     not yet a general fix for all staged Piper cases.
+   - Practical conclusion:
+     - the primary faulty op family is the ROCm `Conv` path under session reuse
+     - earlier upstream tensor shortening seen in some traces can be a
+       secondary overwrite effect from later decoder `Conv` corruption
+   - Validation follow-up:
+     - the ONNX Runtime Piper benchmark and steady-state steps now accept
+       explicit diagnostic env overrides through workload config:
+       - `tts_bench_env`
+       - `tts_steady_env`

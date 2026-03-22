@@ -1440,6 +1440,7 @@ def _step_onnxruntime_tts_benchmark(
     seed = int(wl.get("tts_seed", 0))
     freeze_randomnormal_like_zeros = bool(wl.get("tts_freeze_randomnormal_like_zeros", False))
     rocm_provider_options = {"miopen_conv_use_max_workspace": "1"}
+    bench_env = dict(run_env)
     for item in _cfg_string_list(wl.get("tts_bench_rocm_provider_options")):
         if "=" not in item:
             return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_bench_rocm_provider_options entry: {item!r}")
@@ -1449,6 +1450,14 @@ def _step_onnxruntime_tts_benchmark(
         if not key:
             return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_bench_rocm_provider_options entry: {item!r}")
         rocm_provider_options[key] = value
+    for item in _cfg_string_list(wl.get("tts_bench_env")):
+        if "=" not in item:
+            return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_bench_env entry: {item!r}")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_bench_env entry: {item!r}")
+        bench_env[key] = value
     timeout_s = max(60, int(cfg.get("timeouts_s", {}).get("onnxruntime_infer", wl.get("tts_bench_timeout_s", 900))))
 
     artifact_dir = ctx.run_root / "artifacts"
@@ -1474,7 +1483,7 @@ def _step_onnxruntime_tts_benchmark(
                 "--write-frozen-model",
                 str(runnable_model),
             ]
-            r_freeze = run_cmd(ctx.repo_root, run_env, freeze_cmd, 300, log)
+            r_freeze = run_cmd(ctx.repo_root, bench_env, freeze_cmd, 300, log)
             freeze_dur_ms += r_freeze.dur_ms
             if r_freeze.rc != 0:
                 return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + freeze_dur_ms), f"freeze_randomnormal_like rc={r_freeze.rc}")
@@ -1494,6 +1503,7 @@ def _step_onnxruntime_tts_benchmark(
                 f"seed = {seed}\n"
                 f"cases = {json.dumps(cases, sort_keys=True)}\n"
                 f"rocm_provider_options = {json.dumps(rocm_provider_options, sort_keys=True)}\n"
+                f"bench_env = {json.dumps({k: bench_env[k] for k in sorted(bench_env) if k not in run_env or run_env.get(k) != bench_env.get(k)}, sort_keys=True)}\n"
                 "provider_name = sys.argv[1]\n"
                 "case_index = int(sys.argv[2])\n"
                 "mode = sys.argv[3]\n"
@@ -1561,6 +1571,7 @@ def _step_onnxruntime_tts_benchmark(
                 "        'ok': True,\n"
                 "        'provider_name': provider_name,\n"
                 "        'mode': mode,\n"
+                "        'bench_env': bench_env,\n"
                 "        'label': label,\n"
                 "        'phoneme_len': int(feed['input_lengths'][0]),\n"
                 "        'session_create_ms': create_ms,\n"
@@ -1598,7 +1609,7 @@ def _step_onnxruntime_tts_benchmark(
             encoding="utf-8",
         )
         def run_child(provider_name: str, case_index: int, mode: str) -> tuple[ProcResult, dict[str, Any] | None]:
-            res = run_cmd(ctx.repo_root, run_env, [py, str(child_script), provider_name, str(case_index), mode], timeout_s, log)
+            res = run_cmd(ctx.repo_root, bench_env, [py, str(child_script), provider_name, str(case_index), mode], timeout_s, log)
             if res.rc != 0:
                 return res, None
             match = re.search(r"ORT_TTS_BENCH_CHILD_JSON=(\{.*\})", res.out + "\n" + res.err)
@@ -1673,6 +1684,7 @@ def _step_onnxruntime_tts_benchmark(
             "rocm_reuse_fail": sum(1 for item in rocm_reuse_runs if not bool(item.get("ok"))),
         },
         "hip_lib": hip_lib,
+        "bench_env": {k: bench_env[k] for k in sorted(bench_env) if k not in run_env or run_env.get(k) != bench_env.get(k)},
         "rocm_provider_options": rocm_provider_options,
     }
     cpu_cold_ms = float(data["summary"]["cpu_cold_ms"])
@@ -1741,6 +1753,7 @@ def _step_onnxruntime_tts_steady_state_probe(
     timeout_s = max(60, int(cfg.get("timeouts_s", {}).get("onnxruntime_infer", wl.get("tts_steady_timeout_s", 900))))
     freeze_randomnormal_like_zeros = bool(wl.get("tts_freeze_randomnormal_like_zeros", False))
     rocm_provider_options = {"miopen_conv_use_max_workspace": "1"}
+    steady_env = dict(run_env)
     for item in _cfg_string_list(wl.get("tts_steady_rocm_provider_options")):
         if "=" not in item:
             return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_steady_rocm_provider_options entry: {item!r}")
@@ -1750,6 +1763,14 @@ def _step_onnxruntime_tts_steady_state_probe(
         if not key:
             return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_steady_rocm_provider_options entry: {item!r}")
         rocm_provider_options[key] = value
+    for item in _cfg_string_list(wl.get("tts_steady_env")):
+        if "=" not in item:
+            return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_steady_env entry: {item!r}")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            return StepResult(build_dir, step_name, "FAIL", "0ms", f"invalid tts_steady_env entry: {item!r}")
+        steady_env[key] = value
 
     artifact_dir = ctx.run_root / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -1774,7 +1795,7 @@ def _step_onnxruntime_tts_steady_state_probe(
                 "--write-frozen-model",
                 str(runnable_model),
             ]
-            r_freeze = run_cmd(ctx.repo_root, run_env, freeze_cmd, 300, log)
+            r_freeze = run_cmd(ctx.repo_root, steady_env, freeze_cmd, 300, log)
             freeze_dur_ms += r_freeze.dur_ms
             if r_freeze.rc != 0:
                 return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms + freeze_dur_ms), f"freeze_randomnormal_like rc={r_freeze.rc}")
@@ -1795,6 +1816,7 @@ def _step_onnxruntime_tts_steady_state_probe(
                 f"iters = {iters}\n"
                 f"case = {json.dumps(case, sort_keys=True)}\n"
                 f"rocm_provider_options = {json.dumps(rocm_provider_options, sort_keys=True)}\n"
+                f"steady_env = {json.dumps({k: steady_env[k] for k in sorted(steady_env) if k not in run_env or run_env.get(k) != steady_env.get(k)}, sort_keys=True)}\n"
                 "provider_name = sys.argv[1]\n"
                 "def _dtype(type_name):\n"
                 "    if type_name == 'tensor(int64)': return np.int64\n"
@@ -1856,13 +1878,13 @@ def _step_onnxruntime_tts_steady_state_probe(
                 "    except Exception as exc:\n"
                 "        rows.append({'iter': i, 'ok': False, 'error_type': type(exc).__name__, 'error': str(exc)})\n"
                 "        break\n"
-                "print('ORT_TTS_STEADY_JSON=' + json.dumps({'provider_name': provider_name, 'session_providers': sess.get_providers(), 'hip_lib': rocm_lib_hint(), 'rows': rows}, sort_keys=True))\n"
+                "print('ORT_TTS_STEADY_JSON=' + json.dumps({'provider_name': provider_name, 'session_providers': sess.get_providers(), 'hip_lib': rocm_lib_hint(), 'steady_env': steady_env, 'rows': rows}, sort_keys=True))\n"
             ),
             encoding="utf-8",
         )
 
         def run_child(provider_name: str) -> tuple[ProcResult, dict[str, Any] | None]:
-            res = run_cmd(ctx.repo_root, run_env, [py, str(child_script), provider_name], timeout_s, log)
+            res = run_cmd(ctx.repo_root, steady_env, [py, str(child_script), provider_name], timeout_s, log)
             match = re.search(r"ORT_TTS_STEADY_JSON=(\{.*\})", res.out + "\n" + res.err)
             if not match:
                 return res, None
@@ -1896,6 +1918,7 @@ def _step_onnxruntime_tts_steady_state_probe(
         "iters": iters,
         "cpu": cpu_data,
         "rocm": rocm_data,
+        "steady_env": {k: steady_env[k] for k in sorted(steady_env) if k not in run_env or run_env.get(k) != steady_env.get(k)},
     }
     artifact_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
 

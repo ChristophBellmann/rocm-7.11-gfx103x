@@ -582,6 +582,27 @@ Current March 22 2026 steady-state finding for case `mogli`:
 - this reproduces both in-tree and promoted, so it is currently treated as a
   ROCm steady-state/runtime issue, not a promote-only wheel mismatch
 
+Current March 22 2026 root-cause update for the Piper reuse bug:
+- the strongest stable discriminator is session reuse:
+  - reusing one ROCm `InferenceSession` drifts on repeated Piper runs
+  - recreating a fresh ROCm session per run stays stable on the same frozen case
+- the primary faulty op family is ROCm `Conv`, not `ConvTranspose`:
+  - forcing all `Conv` ops to CPU via `ORT_ROCM_FORCE_CPU_OPS=Conv` keeps the
+    repeated run stable for the tested Piper case
+  - forcing only `ConvTranspose` to CPU does not fix the drift
+- forcing only decoder `Conv` nodes to CPU can stabilize some cases such as
+  `hey mogli`, but is not yet a general accepted stack fix for all staged cases
+
+For controlled Piper benchmark/steady-state diagnosis there are now explicit
+environment override knobs in the ONNX Runtime workload config:
+- `tts_bench_env`
+- `tts_steady_env`
+
+These are diagnostic controls, for example to pass:
+- `MIOPEN_FIND_MODE=FAST`
+- `ORT_ROCM_FORCE_CPU_OPS=Conv`
+- `ORT_ROCM_FORCE_CPU_OP_NODES=Conv@/dec/`
+
 Current March 2026 diagnosis snapshot:
 - the primary investigation site is `validation/`, not the consumer repo
 - a dedicated ORT runtime venv is used for TTS validation:
