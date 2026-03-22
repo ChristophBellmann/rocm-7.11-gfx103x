@@ -80,6 +80,14 @@
    - For Piper/ORT on gfx1031, isolated benchmark child processes were necessary to avoid mixing CPU and ROCm session state and to keep run artifacts reproducible.
    - If repeated ROCm runs on the same real model show output-shape drift, treat that as a stability/correctness investigation first; do not summarize it as a plain throughput result.
 
+0g. **2026-03-22: ORT validation reference runs must be serial when they share the runtime venv**
+   - `onnxruntime_in_tree_tts`, `onnxruntime_rocm711_promoted_tts`, and the matching benchmark profiles all reuse `validation/workspace/envs/onnxruntime_rocm/`.
+   - Those steps run `pip --force-reinstall` inside that shared venv before the workload.
+   - Running multiple such profiles in parallel can corrupt the venv transiently and produce false failures such as:
+     - pip install `OSError` on temporary dist-info files
+     - invalid partial distributions like `~umpy` / `~ympy`
+   - Treat only serial reruns as authoritative for ORT reference validation and benchmark baselines.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
