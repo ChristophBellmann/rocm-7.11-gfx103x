@@ -198,6 +198,26 @@
      - upstream of the later `flows.3` / duration explosion
      - with `Pad_2_output_0` now the first currently visible drifting tensor while `Softmax_1_output_0` still looks stable.
 
+0m. **2026-03-22: The direct `GatherND_3 -> Softmax_1 -> Mul_16 -> Add_11 -> CumSum_1 -> Pad_2` trace stays stable longer and then jumps straight to `Reshape_1`**
+   - Artifact:
+     - `validation/workspace/debug/piper_steady_repeat_cumsum1line_trace.json`
+   - Traced outputs:
+     - `/dp/flows.7/GatherND_3_output_0`
+     - `/dp/flows.7/Softmax_1_output_0`
+     - `/dp/flows.7/Mul_16_output_0`
+     - `/dp/flows.7/Add_11_output_0`
+     - `/dp/flows.7/CumSum_1_output_0`
+     - `/dp/flows.7/Pad_2_output_0`
+   - Result on the same staged `mogli` case, same ROCm settings:
+     - iter 0-2: all six traced outputs remain in the expected family
+     - iter 3: the run fails immediately with the known `/Reshape_1` runtime error
+   - This means the repeated-run manifestation depends on which outputs are kept alive in the debug model:
+     - the lighter mask trace can show `Pad_2` flipping early
+     - the direct `CumSum_1` trace can keep that same line numerically stable until the later `Reshape_1` failure
+   - The stronger interpretation is therefore:
+     - the fault window still includes the `flow7` mask/ramp region
+     - but the bug behaves like topology-/lifetime-/execution-order-sensitive ROCm EP state, not like a single standalone `Pad_2`, `CumSum_1`, or `Softmax_1` kernel defect.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

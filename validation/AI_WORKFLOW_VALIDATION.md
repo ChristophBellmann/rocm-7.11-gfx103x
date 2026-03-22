@@ -233,3 +233,13 @@ A correct end state for `validation/` means:
       VRAM state enough to trigger separate allocator or MIOpen failures; do
       not treat those heavier traces as the primary narrowing evidence unless
       they reproduce serially without the extra memory fault
+    - if two repeated-run traces over the same neighborhood disagree depending
+      on which outputs are kept alive in the debug model, record that as
+      stronger evidence for topology-/lifetime-/execution-order-sensitive ROCm
+      EP behavior:
+      - current example:
+        - `validation/workspace/debug/piper_steady_repeat_maskline_trace.json`
+          shows `Pad_2` drifting early while `Softmax_1` still looks stable
+        - `validation/workspace/debug/piper_steady_repeat_cumsum1line_trace.json`
+          keeps `GatherND_3 -> ... -> Pad_2` stable through iter 2 and then
+          jumps straight to the later `/Reshape_1` failure
