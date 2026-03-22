@@ -320,6 +320,24 @@
      - it is already present in the late decoder feature maps before `/dec/conv_post/Conv`
      - the next useful narrowing point is therefore inside the last decoder stack feeding `/dec/resblocks.8/Add_1_output_0`.
 
+0s. **2026-03-22: The remaining `FAST`-mode `hey mogli` drift starts before `resblocks.8`, already at `ups.2/ConvTranspose`**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_resblock8_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dec/ups.2/ConvTranspose_output_0`
+     - `/dec/resblocks.8/convs.0/Conv_output_0`
+     - `/dec/resblocks.8/Add_output_0`
+     - `/dec/resblocks.8/convs.1/Conv_output_0`
+     - `/dec/resblocks.8/Add_1_output_0`
+   - Result on repeated runs:
+     - iter 0: all traced late-decoder tensors have length `14080`
+     - iter 1: `/dec/ups.2/ConvTranspose_output_0` is already shortened to `13824`
+     - iter 1: the same `13824` length then propagates through the whole traced `resblocks.8` stack
+   - Updated interpretation:
+     - the remaining `hey mogli` drift under `FAST` begins upstream of `resblocks.8/Add_1`
+     - the earliest currently proven shortened tensor in this late decoder branch is `/dec/ups.2/ConvTranspose_output_0`
+     - the next narrowing point should therefore be the last upsampling stage feeding `ups.2`.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

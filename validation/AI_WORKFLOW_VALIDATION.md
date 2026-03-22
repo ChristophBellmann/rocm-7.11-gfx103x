@@ -265,3 +265,6 @@ A correct end state for `validation/` means:
       `/dec/conv_post/Conv`, record that as a decoder-feature-map fault rather
       than a final-output-only issue and continue narrowing inside the last
       decoder stack
+    - if the same shortened length is already present at the input of that last
+      decoder stack (for example at `/dec/ups.2/ConvTranspose_output_0`), move
+      the fault window upstream again to the corresponding upsampling stage
