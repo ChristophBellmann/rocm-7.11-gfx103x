@@ -363,6 +363,26 @@
    - The next narrowing point is therefore inside the preceding decoder
      aggregation feeding `/dec/Add_2_output_0`, not in `ups.2` itself.
 
+0u. **2026-03-22: Both source branches feeding `Add_2` are already shortened under `FAST`**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_add2sources_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dec/resblocks.3/Add_1_output_0`
+     - `/dec/resblocks.4/Add_1_output_0`
+     - `/dec/Add_2_output_0`
+   - Result on repeated runs:
+     - iter 0: all three traced tensors have length `3520`
+     - iter 1:
+       - `/dec/resblocks.3/Add_1_output_0` shortens to `3456`
+       - `/dec/resblocks.4/Add_1_output_0` shortens to `3456`
+       - `/dec/Add_2_output_0` correspondingly shortens to `3456`
+   - Updated interpretation:
+     - `Add_2` is only the first shared aggregation point, not the root cause
+     - the remaining `FAST`-mode `hey mogli` fault already exists on both
+       branches feeding that merge
+     - the next narrowing point should move further upstream into the decoder
+       blocks before `resblocks.3` and `resblocks.4/Add_1`.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

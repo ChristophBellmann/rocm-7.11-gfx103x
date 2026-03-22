@@ -273,3 +273,6 @@ A correct end state for `validation/` means:
       `/dec/ups.2/ConvTranspose_output_0`), treat the upsampling op as
       downstream propagation and move the fault window to the preceding decoder
       aggregation stage
+    - if both source branches feeding that aggregation are already shortened,
+      record the aggregation node as downstream propagation only and move the
+      fault window further upstream into the branch-local decoder blocks
