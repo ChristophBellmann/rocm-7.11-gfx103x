@@ -133,6 +133,22 @@
      - not just the known fast-reduction bug family
      - current best hypothesis remains a ROCm EP steady-state / lifetime / execution-order issue on the real Piper graph
 
+0j. **2026-03-22: Repeat-trace on the top duration path shows the steady-state jump occurs before `Reshape_1`**
+   - The internal helper `validation/src/steps/workloads/onnxruntime/piper_tts_debug.py` now supports repeated runs on the same session for selected outputs.
+   - Repeated ROCm trace on staged Lessac case `mogli` with:
+     - `/dp/Split_output_0`
+     - `/Exp_output_0`
+     - `/Ceil_output_0`
+     - `/Cast_output_0`
+     - `/CumSum_output_0`
+   - Trace artifact:
+     - `validation/workspace/debug/piper_steady_repeat_cumsum_trace.json`
+   - Current finding:
+     - iter 0-2 stay at the expected duration path (`Cast=43`)
+     - iter 3 jumps to the blown-up duration family (`Cast=3162`, `CumSum` in the thousands)
+     - iter 4-5 stay in that blown-up family
+   - This places the repeated-run transition upstream of `Reshape_1` and inside the same top-level duration path that was already known from the one-shot correctness bug family.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

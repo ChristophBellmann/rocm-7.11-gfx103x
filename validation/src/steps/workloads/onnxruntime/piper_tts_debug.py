@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -232,6 +233,18 @@ def parse_args() -> argparse.Namespace:
         dest="rocm_provider_options",
         default=[],
         help="ROCm EP provider option as key=value; can be passed multiple times",
+    )
+    ap.add_argument(
+        "--repeat-provider",
+        choices=["cpu", "rocm"],
+        default="",
+        help="If set together with --repeat-runs, run only this provider repeatedly on the same session",
+    )
+    ap.add_argument(
+        "--repeat-runs",
+        type=int,
+        default=0,
+        help="If >0, run the selected provider repeatedly on the same session and record per-iteration outputs",
     )
     ap.add_argument("--out-json", default="", help="Optional path for the JSON result")
     return ap.parse_args()
@@ -1795,6 +1808,89 @@ def compare_outputs(cpu: dict[str, np.ndarray], rocm: dict[str, np.ndarray], kee
     }
 
 
+def run_submodel_repeated(
+    model_path: Path,
+    feed: dict[str, np.ndarray],
+    keep_outputs: list[str],
+    *,
+    provider: str,
+    seed: int,
+    disable_fast_reduction: bool,
+    graph_mode: str,
+    opt_level: str,
+    freeze_dp_random_zeros: bool,
+    rocm_provider_options: dict[str, str],
+    repeat_runs: int,
+) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="ort-piper-tts-repeat-") as td:
+        source_model = model_path
+        if freeze_dp_random_zeros:
+            source_model = Path(td) / "freeze_dp_random.onnx"
+            _freeze_dp_random_zeros(model_path, source_model, feed)
+        prev = os.environ.get("ORT_ROCM_DISABLE_FAST_REDUCTION")
+        try:
+            if provider == "rocm" and disable_fast_reduction:
+                os.environ["ORT_ROCM_DISABLE_FAST_REDUCTION"] = "1"
+            elif provider == "rocm":
+                os.environ.pop("ORT_ROCM_DISABLE_FAST_REDUCTION", None)
+            ort.set_seed(seed)
+            np.random.seed(seed)
+            so = ort.SessionOptions()
+            if opt_level == "disable":
+                so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+            elif opt_level == "basic":
+                so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+            elif opt_level == "extended":
+                so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+            else:
+                so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            runnable_model = Path(td) / "repeat_debug_model.onnx"
+            if graph_mode == "extract":
+                utils.extract_model(str(source_model), str(runnable_model), ["input", "input_lengths", "scales"], keep_outputs)
+            else:
+                _write_full_model_with_outputs(source_model, runnable_model, keep_outputs)
+            sess = ort.InferenceSession(str(runnable_model), sess_options=so, providers=_providers(provider, rocm_provider_options))
+            rows: list[dict[str, Any]] = []
+            for idx in range(max(1, repeat_runs)):
+                row: dict[str, Any] = {"iter": idx}
+                try:
+                    t0 = time.perf_counter()
+                    values = sess.run(keep_outputs, feed)
+                    row["ms"] = (time.perf_counter() - t0) * 1000.0
+                    row["ok"] = True
+                    row["outputs"] = {
+                        name: {
+                            "shape": list(np.asarray(value).shape),
+                            "dtype": str(np.asarray(value).dtype),
+                            "sample": np.asarray(value).reshape(-1)[:16].tolist(),
+                            "mean": float(np.mean(np.asarray(value, dtype=np.float32))) if np.asarray(value).size else 0.0,
+                            "std": float(np.std(np.asarray(value, dtype=np.float32))) if np.asarray(value).size else 0.0,
+                        }
+                        for name, value in zip(keep_outputs, values)
+                    }
+                except Exception as exc:
+                    row["ok"] = False
+                    row["error_type"] = type(exc).__name__
+                    row["error"] = str(exc)
+                    rows.append(row)
+                    break
+                rows.append(row)
+            return {
+                "provider": provider,
+                "graph_mode": graph_mode,
+                "opt_level": opt_level,
+                "disable_fast_reduction": bool(disable_fast_reduction),
+                "repeat_runs": repeat_runs,
+                "hip_lib": _rocm_lib_hint(),
+                "rows": rows,
+            }
+        finally:
+            if prev is None:
+                os.environ.pop("ORT_ROCM_DISABLE_FAST_REDUCTION", None)
+            else:
+                os.environ["ORT_ROCM_DISABLE_FAST_REDUCTION"] = prev
+
+
 def main() -> int:
     args = parse_args()
     rocm_provider_options = _parse_provider_options(args.rocm_provider_options)
@@ -1822,6 +1918,35 @@ def main() -> int:
         keep_outputs = _unique_keep_order(keep_outputs + list(exact_chain["boundary_inputs"]) + list(exact_chain["output_names"]))
     case = load_case(case_file, args.case_label)
     feed = build_feed(case)
+    if args.repeat_runs > 0:
+        if not args.repeat_provider:
+            raise ValueError("--repeat-runs requires --repeat-provider")
+        result = {
+            "model": str(model_path),
+            "case_file": str(case_file),
+            "case_label": case.get("label", ""),
+            "seed": args.seed,
+            "repeat_trace": run_submodel_repeated(
+                model_path,
+                feed,
+                keep_outputs,
+                provider=args.repeat_provider,
+                seed=args.seed,
+                disable_fast_reduction=bool(args.disable_fast_reduction),
+                graph_mode=args.graph_mode,
+                opt_level=args.opt_level,
+                freeze_dp_random_zeros=bool(args.freeze_dp_random_zeros),
+                rocm_provider_options=rocm_provider_options,
+                repeat_runs=int(args.repeat_runs),
+            ),
+        }
+        text = json.dumps(result, indent=2)
+        if args.out_json:
+            out = Path(args.out_json).expanduser().resolve()
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(text, encoding="utf-8")
+        print(text)
+        return 0
     cpu = run_submodel(
         model_path,
         feed,
