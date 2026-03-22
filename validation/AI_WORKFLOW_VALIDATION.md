@@ -218,3 +218,18 @@ A correct end state for `validation/` means:
         that as topology-/lifetime-/execution-order-specific ROCm EP behavior
     - exact node-local CPU forcing can still be used to narrow the fault, but
       must be recorded as diagnostic only and must not be committed as the fix
+    - for the March 2026 repeated-run ROCm drift, the lightest currently
+      reliable narrowing artifact is:
+      - `validation/workspace/debug/piper_steady_repeat_maskline_trace.json`
+    - current repeated-run bracket on `mogli`, ROCm, `ORT_ENABLE_ALL`,
+      `miopen_conv_use_max_workspace=1`:
+      - `/dp/flows.7/Softmax_1_output_0` still stays in the expected family
+      - `/dp/flows.7/Pad_2_output_0` is the first currently visible tensor that
+        flips to the alternate family on the next repeated run
+      - `/dp/flows.7/ScatterND_4_output_0`,
+        `/dp/flows.7/ScatterND_7_output_0`, and
+        `/dp/flows.7/Cast_16_output_0` follow immediately after
+    - heavier bridge traces around `/dp/flows.7/Add_20_output_0` can perturb
+      VRAM state enough to trigger separate allocator or MIOpen failures; do
+      not treat those heavier traces as the primary narrowing evidence unless
+      they reproduce serially without the extra memory fault

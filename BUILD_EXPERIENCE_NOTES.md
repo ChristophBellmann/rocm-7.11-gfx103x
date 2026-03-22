@@ -172,6 +172,32 @@
      - upstream of the known `flows.3` / duration path tensors
    - This further supports a graph-lifetime / execution-order style ROCm EP issue rather than a single bare top-level `Cast` or `Reshape` bug.
 
+0l. **2026-03-22: The light repeated-run `flow7` mask trace now shows the first visible drift at `Pad_2`**
+   - A heavier bridge trace around `Add_20` is not suitable as the primary narrowing signal:
+     - artifact: `validation/workspace/debug/piper_steady_repeat_add20line_trace.json`
+     - it already hits a real allocator failure on iter 1:
+       - `ROCMAllocator::Alloc hipMalloc failed size=725286912`
+       - failing node: `/dec/resblocks.8/convs.1/Conv`
+     - so that trace is recorded as a secondary memory-side symptom, not as the fault window itself.
+   - The lighter mask trace is now the authoritative repeated-run narrowing artifact:
+     - `validation/workspace/debug/piper_steady_repeat_maskline_trace.json`
+   - Traced outputs:
+     - `/dp/flows.7/Softmax_1_output_0`
+     - `/dp/flows.7/Pad_2_output_0`
+     - `/dp/flows.7/ScatterND_4_output_0`
+     - `/dp/flows.7/ScatterND_7_output_0`
+     - `/dp/flows.7/Cast_16_output_0`
+   - Result on `mogli`, ROCm, `ORT_ENABLE_ALL`, `miopen_conv_use_max_workspace=1`:
+     - iter 0: all outputs are in the expected family
+     - iter 1: `Softmax_1` still stays stable
+     - iter 1: `Pad_2` has already flipped from mean about `0.4807` to about `0.0915`
+     - iter 1: `ScatterND_4`, `ScatterND_7`, and `Cast_16` follow immediately into the alternate family
+     - iter 3: the run then fails later in conv search with `miopenStatusUnknownError`
+   - Current best repeated-run bracket:
+     - downstream of the early stable `flow7` conv/norm tensors
+     - upstream of the later `flows.3` / duration explosion
+     - with `Pad_2_output_0` now the first currently visible drifting tensor while `Softmax_1_output_0` still looks stable.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
