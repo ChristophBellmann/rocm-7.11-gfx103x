@@ -287,3 +287,6 @@ A correct end state for `validation/` means:
     - if all source branches feeding that aggregation are already shortened,
       record the aggregation as downstream propagation only and move the fault
       window further upstream toward the last shared stage before those branches
+    - if the shortening is already present at `/dec/conv_pre/Conv_output_0`,
+      treat the whole decoder as downstream propagation and move the fault
+      window to the tensor feeding the decoder entry

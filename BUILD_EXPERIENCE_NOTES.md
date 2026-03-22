@@ -449,6 +449,31 @@
      - the next narrowing point has to move further upstream again, toward the
        shared stage feeding the early decoder blocks.
 
+0y. **2026-03-22: The remaining `FAST`-mode `hey mogli` shortening is already present at the decoder entry**
+   - Artifact:
+     - `validation/workspace/debug/piper_repeat_decoderentry_find_fast_hey_mogli.json`
+   - Traced outputs:
+     - `/dec/conv_pre/Conv_output_0`
+     - `/dec/LeakyRelu_output_0`
+     - `/dec/ups.0/ConvTranspose_output_0`
+     - `/dec/resblocks.0/Add_1_output_0`
+     - `/dec/resblocks.1/Add_1_output_0`
+     - `/dec/resblocks.2/Add_1_output_0`
+   - Result on repeated runs:
+     - iter 0:
+       - `/dec/conv_pre/Conv_output_0` length `55`
+       - `/dec/ups.0/ConvTranspose_output_0` length `440`
+     - iter 1:
+       - `/dec/conv_pre/Conv_output_0` already shortens to `52`
+       - `/dec/LeakyRelu_output_0` also shortens to `52`
+       - `/dec/ups.0/ConvTranspose_output_0` correspondingly shortens to `416`
+       - the traced early decoder blocks then also shorten to `416`
+   - Current earliest proven shortened tensor in the remaining `FAST`-mode
+     `hey mogli` branch:
+     - `/dec/conv_pre/Conv_output_0`
+   - The next narrowing point is therefore upstream of the decoder entry, at the
+     tensor feeding `/dec/conv_pre/Conv`.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).
