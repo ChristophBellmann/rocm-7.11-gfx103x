@@ -88,6 +88,26 @@
      - invalid partial distributions like `~umpy` / `~ympy`
    - Treat only serial reruns as authoritative for ORT reference validation and benchmark baselines.
 
+0h. **2026-03-22: Serial Piper TTS benchmark baseline shows ROCm far slower than CPU on the small real workload**
+   - Validation benchmark profiles now exist for both:
+     - `onnxruntime_in_tree_tts_benchmark`
+     - `onnxruntime_rocm711_promoted_tts_benchmark`
+   - Serial reference runs:
+     - in-tree: `validation/workspace/runs/2026-03-22_203627`
+     - promoted: `validation/workspace/runs/2026-03-22_203450`
+   - The two states agree closely:
+     - CPU create about `0.72-0.74 s`
+     - CPU cold about `34-40 ms`
+     - CPU second run about `31-33 ms`
+     - ROCm create about `0.86-0.88 s`
+     - ROCm cold about `13.2-13.4 s`
+     - ROCm second run about `4.0 s`
+   - This means the slowdown is not just session creation overhead; the real ROCm Piper inference path is much slower than CPU for these two short real cases.
+   - The benchmark artifacts also show a repeated-run shape drift on ROCm:
+     - `mogli`: cold `[1,1,1,11008]` -> second run `[1,1,1,10752]`
+     - `hey mogli`: cold `[1,1,1,14080]` -> second run `[1,1,1,12800]`
+   - Because the same drift appears both in-tree and promoted, the next diagnosis target is a ROCm steady-state/runtime behavior issue, not a promote-only packaging mismatch.
+
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.
    - Configure via `./build_gfx1031.sh configure` (uses `config_gfx1031.yaml`, supports Stage-1/Stage-2).

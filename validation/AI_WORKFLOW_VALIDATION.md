@@ -138,6 +138,7 @@ A correct end state for `validation/` means:
     - first-run cost
     - repeated-run cost
     - whether repeated runs remain semantically stable on ROCm
+  - if the same ORT/Piper benchmark behavior reproduces both in-tree and under the matching `*_promoted` profile, treat it as a stack/runtime behavior issue first, not as a promote-path packaging issue
   - if the diagnosis used any of these debug hooks, record them explicitly:
     - `ORT_ROCM_FORCE_CPU_OP_NODES`
     - `ORT_ROCM_FORCE_CPU_OP_EXACT_NODES`
