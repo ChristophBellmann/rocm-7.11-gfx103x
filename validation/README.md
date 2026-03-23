@@ -558,19 +558,22 @@ The per-case JSON artifact is written to:
 - `validation/workspace/runs/<run_id>/artifacts/onnxruntime_tts_benchmark.json`
 
 Current March 23 2026 in-tree benchmark snapshot on gfx1031:
-- CPU create: about `728 ms`
-- CPU cold inference: about `40 ms`
-- CPU second-run inference: about `37 ms`
-- ROCm create: about `884 ms`
-- ROCm cold inference: about `15549 ms`
-- ROCm second-run inference: about `8849 ms`
-- benchmark artifact: `validation/workspace/runs/2026-03-23_154348/artifacts/onnxruntime_tts_benchmark.json`
+- CPU create: about `717 ms`
+- CPU cold inference: about `34 ms`
+- CPU second-run inference: about `35 ms`
+- ROCm create: about `883 ms`
+- ROCm cold inference: about `14422 ms`
+- ROCm second-run inference: about `2441 ms`
+- benchmark artifact: `validation/workspace/runs/2026-03-23_171923/artifacts/onnxruntime_tts_benchmark.json`
 
-This slower warm ROCm result is the current accepted "safe" installable state:
+This is the current accepted safe in-tree state:
 - repeated real-model ROCm runs stay correct again
-- the tradeoff is that the current ORT ROCm fix refreshes forward state for the
-  small Piper-style 1D conv family instead of reusing the previous fast but
-  unsafe cache path
+- the current ORT ROCm fix no longer refreshes every small Piper-style 1D conv
+  on every run; it refreshes only the confirmed problematic `/dp/flows.3/` and
+  `/dp/flows.5/` conv families
+- that narrowed guard keeps correctness while recovering a large part of the
+  warm-reuse regression, though GPU reuse is still slower than CPU on this
+  small real-model benchmark
 
 Current March 23 2026 promoted benchmark snapshot under `/opt/rocm`:
 - CPU create: about `743 ms`
