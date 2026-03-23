@@ -26,17 +26,38 @@ Operative Details gehoeren in die zustaendigen Fachdateien.
 - Framework-Forks sind die Source of Truth fuer `tools/rocm_release/` und damit fuer Wheel-Build/Promote.
 - Consumer-Repos wie `wakeword` sollen diese Artefakte nur noch nutzen, nicht selbst custom bauen.
 
+## Arbeitsprinzip fuer Agents
+
+Agents sollen:
+
+- zuerst vorhandene Dokumentation lesen
+- bestehende Experimente respektieren
+- neue Hypothesen nur minimal testen
+- bekannte Sackgassen nicht wiederholen
+
+Teure Operationen vermeiden:
+
+- grosse Builds
+- parallele Benchmarks
+- mehrfach gleiche Experimente
+
 ## Regel gegen Redundanz
+
 - Keine operativen Befehle in `AGENTS.md` duplizieren.
 - Bei Ablaufaenderungen nur die zustaendige README/Workflow-Datei aktualisieren.
 - `AGENTS.md` bleibt ein Navigations- und Prioritaetsdokument.
 
 ## Sicherheitsgrenzen
-- Keine systemweiten Aenderungen und keine destruktiven Git-Operationen ohne explizite Freigabe.
-- Workflow-Dateiaenderungen in den Framework-Forks sind ein Sonderfall fuer Pushes:
-  - HTTPS braucht dafuer ein Credential mit `workflow`-Scope.
-  - SSH ist dafuer weiterhin ein valider manueller Ausweg.
+
+- Keine systemweiten Aenderungen ohne explizite Freigabe.
+- Keine destruktiven Git-Operationen ohne explizite Freigabe.
+
+Workflow-Dateiaenderungen in den Framework-Forks sind ein Sonderfall fuer Pushes:
+
+- HTTPS braucht dafuer ein Credential mit `workflow`-Scope.
+- SSH ist dafuer weiterhin ein valider manueller Ausweg.
 
 ## CI-Hinweis
+
 - In den persoenlichen Framework-Forks sind automatische GitHub-Actions bewusst deaktiviert.
 - Workflows sollen dort nur manuell laufen, ausser eine wiederverwendbare `workflow_call`-Datei wird bewusst als Baustein gebraucht.
