@@ -17,6 +17,9 @@ These are the currently promoted custom Python artifacts:
   - `onnxruntime_rocm-1.22.2-cp312-cp312-linux_x86_64.whl`
 - stable alias:
   - `onnxruntime-current.whl`
+- build/promote path:
+  - build repo-local via `validation/scripts/onnxruntime_rocm/build_onnxruntime_rocm_wheel.sh`
+  - promote via `validation/scripts/onnxruntime_rocm/install_onnxruntime_rocm_wheel_to_opt.sh`
 
 ### PyTorch family
 
@@ -110,8 +113,23 @@ Repo:
 Examples from current branch history:
 - `Fix ROCm provider static TLS loading and remove preload dependency`
 - `Relax flatbuffers generated header version checks for toolchain compatibility`
+- `Fix ROCm TTS correctness and wheel build workflow`
+- `Refresh ROCm 1D conv forward state on reuse`
 
 These are provider/toolchain fixes inside the fork.
+
+### MIOpen / stage2 ROCm fixes
+
+Repo:
+- `rocm-libraries`
+
+Examples from current local branch history:
+- `Avoid unstable GEMM paths for Piper convs`
+
+Delivery note:
+- this is not promoted as a separate wheel
+- it becomes system-installable only through the normal stage2 ROCm mirror path,
+  i.e. `./install_to_opt.sh --build-dir build-stage2 --prefix /opt/rocm`
 
 ### TensorFlow fork fixes
 

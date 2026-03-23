@@ -551,14 +551,20 @@ measure real-case Piper timings in isolated child processes for:
 The per-case JSON artifact is written to:
 - `validation/workspace/runs/<run_id>/artifacts/onnxruntime_tts_benchmark.json`
 
-Current March 21 2026 in-tree benchmark snapshot on gfx1031:
-- CPU create: about `743 ms`
-- CPU cold inference: about `45 ms`
-- CPU second-run inference: about `28 ms`
-- ROCm create: about `1089 ms`
-- ROCm cold inference: about `11895 ms`
-- ROCm second-run inference: about `3562 ms`
-- benchmark artifact: `validation/workspace/runs/2026-03-21_171622/artifacts/onnxruntime_tts_benchmark.json`
+Current March 23 2026 in-tree benchmark snapshot on gfx1031:
+- CPU create: about `728 ms`
+- CPU cold inference: about `40 ms`
+- CPU second-run inference: about `37 ms`
+- ROCm create: about `884 ms`
+- ROCm cold inference: about `15549 ms`
+- ROCm second-run inference: about `8849 ms`
+- benchmark artifact: `validation/workspace/runs/2026-03-23_154348/artifacts/onnxruntime_tts_benchmark.json`
+
+This slower warm ROCm result is the current accepted "safe" installable state:
+- repeated real-model ROCm runs stay correct again
+- the tradeoff is that the current ORT ROCm fix refreshes forward state for the
+  small Piper-style 1D conv family instead of reusing the previous fast but
+  unsafe cache path
 
 That benchmark is intentionally diagnostic, not a pass/fail correctness gate:
 - cold CPU/ROCm measurement must succeed
