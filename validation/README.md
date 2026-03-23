@@ -542,6 +542,12 @@ For performance triage there are now dedicated Piper benchmark profiles:
 - `onnxruntime_in_tree_tts_benchmark`
 - `onnxruntime_rocm711_promoted_tts_benchmark`
 
+Promoted ONNX Runtime profiles use a separate runtime venv:
+- `validation/workspace/envs/onnxruntime_rocm_promoted`
+
+This keeps `/opt/rocm` wheel installs isolated from the in-tree ORT runtime venv:
+- `validation/workspace/envs/onnxruntime_rocm`
+
 These benchmark profiles keep the deterministic `RandomNormalLike` freeze, then
 measure real-case Piper timings in isolated child processes for:
 - session creation
@@ -565,6 +571,15 @@ This slower warm ROCm result is the current accepted "safe" installable state:
 - the tradeoff is that the current ORT ROCm fix refreshes forward state for the
   small Piper-style 1D conv family instead of reusing the previous fast but
   unsafe cache path
+
+Current March 23 2026 promoted benchmark snapshot under `/opt/rocm`:
+- CPU create: about `743 ms`
+- CPU cold inference: about `36 ms`
+- CPU second-run inference: about `27 ms`
+- ROCm create: about `906 ms`
+- ROCm cold inference: about `15177 ms`
+- ROCm second-run inference: about `9595 ms`
+- benchmark artifact: `validation/workspace/runs/2026-03-23_162632/artifacts/onnxruntime_tts_benchmark.json`
 
 That benchmark is intentionally diagnostic, not a pass/fail correctness gate:
 - cold CPU/ROCm measurement must succeed
@@ -613,6 +628,8 @@ Current March 2026 diagnosis snapshot:
 - the primary investigation site is `validation/`, not the consumer repo
 - a dedicated ORT runtime venv is used for TTS validation:
   - `validation/workspace/envs/onnxruntime_rocm`
+  - promoted `/opt/rocm` ORT profiles use:
+    - `validation/workspace/envs/onnxruntime_rocm_promoted`
 - the suite now treats semantic CPU-vs-ROCm mismatches as `FAIL`, not only hard
   exceptions
 - there are at least two distinct ROCm-only bug families in the real Piper

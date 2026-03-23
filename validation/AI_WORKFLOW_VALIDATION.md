@@ -57,6 +57,9 @@ custom ROCm stack is usable both:
 - When validating promoted artifacts:
   - use the explicit `*_promoted` profiles only
   - confirm the runtime really resolves ROCm from `/opt/rocm`, not from the in-tree build
+  - for ONNX Runtime, keep promoted wheel installs in a separate runtime venv
+    (`validation/workspace/envs/onnxruntime_rocm_promoted`) instead of reusing
+    the in-tree ORT runtime venv
 - `doctor` remains a no-download sanity path.
 - If a workflow-specific convenience wrapper is tempting, prefer extending the main profile-driven CLI instead.
 

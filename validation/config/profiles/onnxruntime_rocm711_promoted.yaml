@@ -23,5 +23,6 @@ steps:
 workloads:
   onnxruntime:
     wheel_out_dir: "/opt/rocm/wheels/onnxruntime_rocm711"
+    runtime_venv_dir: "validation/workspace/envs/onnxruntime_rocm_promoted"
     use_in_tree_rocm: false
     require_rocm_prefix: "/opt/rocm"

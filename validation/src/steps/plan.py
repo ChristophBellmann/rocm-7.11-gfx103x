@@ -243,6 +243,21 @@ def _latest_wheel(wheel_dir: Path) -> Path | None:
     return wheels[0] if wheels else None
 
 
+def _ort_runtime_env(env: dict[str, str], rocm_dist: Path, wl: dict[str, Any]) -> tuple[dict[str, str], bool, str]:
+    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
+    require_prefix = str(wl.get("require_rocm_prefix", "") or "").strip()
+    if use_in_tree:
+        return env, True, str(rocm_dist)
+
+    run_env = deactivated_env(env, rocm_dist)
+    if require_prefix and require_prefix != "in-tree":
+        prefix_path = Path(require_prefix)
+        if prefix_path.is_absolute():
+            run_env = activated_env(run_env, prefix_path)
+            return run_env, False, str(prefix_path)
+    return run_env, False, require_prefix or "system"
+
+
 def _resolve_repo_path(repo_root: Path, value: str | Path) -> Path:
     p = Path(value)
     if not p.is_absolute():
@@ -766,8 +781,7 @@ def _step_onnxruntime_tts_flow_probe(
     py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
     if py is None:
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
-    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
-    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+    run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
     install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
     r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
@@ -929,8 +943,7 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
     py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
     if py is None:
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
-    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
-    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+    run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
     # Keep ORT import ABI-stable in this venv for custom wheel tests.
     install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
@@ -1087,8 +1100,7 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
     py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
     if py is None:
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
-    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
-    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+    run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
     install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
     r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
@@ -1422,8 +1434,7 @@ def _step_onnxruntime_tts_benchmark(
     py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
     if py is None:
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
-    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
-    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+    run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
     install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
     r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
@@ -1731,8 +1742,7 @@ def _step_onnxruntime_tts_steady_state_probe(
     py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
     if py is None:
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
-    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
-    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+    run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
     install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
     r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
@@ -1952,8 +1962,7 @@ def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_di
     py, py_err = _onnxruntime_runtime_python(ctx, wl, env, log)
     if py is None:
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
-    use_in_tree = bool(wl.get("use_in_tree_rocm", True))
-    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+    run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
     # Keep ORT import ABI-stable in this venv for custom wheel tests.
     install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
