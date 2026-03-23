@@ -73,6 +73,7 @@ custom ROCm stack is usable both:
   - verify the workload respects `validation/workspace/cache/` and `validation/workspace/builds/`
   - run at least one targeted validation command with `--log`
   - if a workload step force-reinstalls packages into a shared runtime venv (for example the ONNX Runtime ROCm Piper steps), do not treat parallel runs as authoritative reference runs
+  - for ONNX Runtime runtime-venv corruption after interrupted `pip --force-reinstall` runs, prefer one automatic fresh-venv retry over manual cache surgery; only compare results from the retry or from later serial runs
   - when the goal is to expose a real downstream runtime bug, prefer a CPU-reference + ROCm pair so the failure is attributed to the ROCm stack rather than to the model fixture
   - when the goal is performance triage for a real-model workload, keep the benchmark as an explicit profile/step under the same public `validation/validate.py` surface:
     - do not add a new public wrapper under `validation/scripts/`

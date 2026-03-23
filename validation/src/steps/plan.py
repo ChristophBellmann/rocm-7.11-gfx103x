@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -624,6 +625,33 @@ def _onnxruntime_runtime_python(
     return str(py), None
 
 
+def _install_onnxruntime_runtime_wheel(
+    ctx: Context,
+    wl: dict[str, Any],
+    env: dict[str, str],
+    log: Path | None,
+    py: str,
+    wheel: Path,
+) -> tuple[bool, Any, str]:
+    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
+    r_install = run_cmd(ctx.repo_root, env, install_cmd, 600, log)
+    if r_install.rc == 0:
+        return True, r_install, py
+
+    # The shared ORT runtime venv can be left in a partially mutated state if a
+    # previous pip operation was interrupted. Recreate it once and retry the
+    # install instead of treating that stale state as a real stack failure.
+    venv_dir = Path(py).resolve().parent.parent
+    shutil.rmtree(venv_dir, ignore_errors=True)
+    fresh_py, fresh_err = _onnxruntime_runtime_python(ctx, wl, env, log)
+    if fresh_py is None:
+        return False, r_install, fresh_err or "onnxruntime runtime venv recreate failed"
+    r_retry = run_cmd(ctx.repo_root, env, [fresh_py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)], 600, log)
+    if r_retry.rc != 0:
+        return False, r_retry, fresh_py
+    return True, r_retry, fresh_py
+
+
 def _resolve_onnxruntime_infer_inputs(ctx: Context, cfg: dict[str, Any], step_name: str) -> tuple[dict[str, Any], Path, Path] | StepResult:
     wl = cfg.get("workloads", {}).get("onnxruntime", {}) or {}
     wheel_out_dir = Path(
@@ -783,10 +811,10 @@ def _step_onnxruntime_tts_flow_probe(
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
     run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
-    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
-    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
-    if r_install.rc != 0:
+    install_ok, r_install, py_or_err = _install_onnxruntime_runtime_wheel(ctx, wl, run_env, log, py, wheel)
+    if not install_ok:
         return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
+    py = py_or_err
 
     diag_py = _resolve_onnxruntime_tts_diag_python(ctx, run_env, py, log)
     if diag_py is None:
@@ -946,9 +974,8 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
     run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
     # Keep ORT import ABI-stable in this venv for custom wheel tests.
-    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
-    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
-    if r_install.rc != 0:
+    install_ok, r_install, py_or_err = _install_onnxruntime_runtime_wheel(ctx, wl, run_env, log, py, wheel)
+    if not install_ok:
         return StepResult(
             build_dir,
             step_name,
@@ -956,6 +983,7 @@ def _step_onnxruntime_infer(ctx: Context, cfg: dict[str, Any], build_dir: str, r
             fmt_duration(r_install.dur_ms),
             f"pip rc={r_install.rc}",
         )
+    py = py_or_err
 
     warmup = int(wl.get("infer_warmup", 50))
     iters = int(wl.get("infer_iters", 1500))
@@ -1102,10 +1130,10 @@ def _step_onnxruntime_tts_infer(ctx: Context, cfg: dict[str, Any], build_dir: st
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
     run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
-    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
-    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
-    if r_install.rc != 0:
+    install_ok, r_install, py_or_err = _install_onnxruntime_runtime_wheel(ctx, wl, run_env, log, py, wheel)
+    if not install_ok:
         return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
+    py = py_or_err
 
     loaded = _load_onnxruntime_tts_cases(ctx, wl, model, step_name)
     if isinstance(loaded, StepResult):
@@ -1436,10 +1464,10 @@ def _step_onnxruntime_tts_benchmark(
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
     run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
-    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
-    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
-    if r_install.rc != 0:
+    install_ok, r_install, py_or_err = _install_onnxruntime_runtime_wheel(ctx, wl, run_env, log, py, wheel)
+    if not install_ok:
         return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
+    py = py_or_err
 
     loaded = _load_onnxruntime_tts_cases(ctx, wl, model, step_name)
     if isinstance(loaded, StepResult):
@@ -1744,10 +1772,10 @@ def _step_onnxruntime_tts_steady_state_probe(
         return StepResult(build_dir, step_name, "FAIL", "0ms", py_err or "onnxruntime runtime venv unavailable")
     run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
-    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
-    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
-    if r_install.rc != 0:
+    install_ok, r_install, py_or_err = _install_onnxruntime_runtime_wheel(ctx, wl, run_env, log, py, wheel)
+    if not install_ok:
         return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
+    py = py_or_err
 
     loaded = _load_onnxruntime_tts_cases(ctx, wl, model, step_name)
     if isinstance(loaded, StepResult):
@@ -1965,10 +1993,10 @@ def _step_onnxruntime_migraphx_infer(ctx: Context, cfg: dict[str, Any], build_di
     run_env, use_in_tree, _runtime_prefix = _ort_runtime_env(env, rocm_dist, wl)
 
     # Keep ORT import ABI-stable in this venv for custom wheel tests.
-    install_cmd = [py, "-m", "pip", "install", "-q", "--force-reinstall", "numpy<2", "protobuf<5", str(wheel)]
-    r_install = run_cmd(ctx.repo_root, run_env, install_cmd, 600, log)
-    if r_install.rc != 0:
+    install_ok, r_install, py_or_err = _install_onnxruntime_runtime_wheel(ctx, wl, run_env, log, py, wheel)
+    if not install_ok:
         return StepResult(build_dir, step_name, "FAIL", fmt_duration(r_install.dur_ms), f"pip rc={r_install.rc}")
+    py = py_or_err
 
     warmup = int(wl.get("migraphx_infer_warmup", wl.get("infer_warmup", 50)))
     iters = int(wl.get("migraphx_infer_iters", wl.get("infer_iters", 1500)))
