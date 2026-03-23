@@ -960,7 +960,7 @@
        - `tts_bench_env`
        - `tts_steady_env`
 
-51. **2026-03-23: The fundamental repeated-run Piper failure is a combined MIOpen solver-family issue plus unsafe ORT forward-cache reuse for small 1D convs**
+51. **2026-03-23: The fundamental repeated-run Piper failure is a combined MIOpen solver-family issue plus overly aggressive ORT forward-state refresh for small 1D convs**
    - The decisive narrowing on the frozen real Piper cases was:
      - forcing all `Conv` nodes under `/dp/flows.3/` and `/dp/flows.5/` to CPU
        restores stable repeated ROCm runs for `hey mogli`
@@ -974,27 +974,37 @@
        degenerate-width 1x1 family
    - ORT-side root cause:
      - even after excluding those two MIOpen GEMM families, the remaining
-       repeated-run drift still needs ORT to refresh forward state instead of
-       reusing the dimension-keyed forward cache across runs
+       repeated-run drift still needs ORT to refresh shape-driven forward state
+       for the affected Piper duration-predictor flow blocks
      - the first safe ORT guard was too broad: trace showed it invalidated
        `57` small 1D conv nodes per run, including unrelated `enc_p`
        attention/projection 1x1 convs
      - the stable narrowed guard only refreshes the confirmed problematic
        duration-predictor flow blocks under `/dp/flows.3/` and `/dp/flows.5/`
        (`16` conv nodes total per run)
+     - the remaining warm-reuse slowdown was then traced to that narrowed guard
+       still clearing `cached_benchmark_fwd_results`, which forced a fresh
+       `miopenFindConvolutionForwardAlgorithm()` on every warm run
+     - local instrumentation on the frozen real Piper cases showed the solver
+       choice for those nodes stays stable for identical shapes, so the per-node
+       forward algorithm cache does not need to be discarded on every reuse
    - Validated local fix stack:
      - MIOpen `gemm.cpp`
        - exclude depthwise 1D-as-2D convs from `GemmFwdRest`
        - exclude degenerate-width 1x1 convs from `GemmFwd1x1_0_1`
      - ORT ROCm `conv.cc`
-       - clear `last_x_dims` and `cached_benchmark_fwd_results` per run only
-         for small 1D convs in `/dp/flows.3/` and `/dp/flows.5/` (`X/W` both
-         3D, input length `<=32`)
+       - clear only `last_x_dims` per run for small 1D convs in
+         `/dp/flows.3/` and `/dp/flows.5/` (`X/W` both 3D, input length `<=32`)
+       - keep `cached_benchmark_fwd_results` so stable warm reuse can skip the
+         repeated forward algo find
    - Result on the staged frozen Lessac model:
      - repeated ROCm runs for both `hey mogli` and `mogli` stay stable
      - normal `validation --profile onnxruntime_in_tree_tts` is green again
-     - benchmark remains mixed:
-       - ROCm cold is still much slower than CPU
-       - but the narrowed ORT guard recovers a large chunk of warm-reuse cost:
-         from about `9.3 s` down to about `2.4 s` on the in-tree benchmark
-         while keeping `rocm_reuse_ok=3`
+     - promoted `/opt/rocm` functional validation is also green again
+     - benchmark remains cold-start heavy on ROCm, but warm reuse is recovered:
+       - in-tree warm reuse improved from about `9.3 s` to about `20 ms`
+         (`validation/workspace/runs/2026-03-23_191055/artifacts/onnxruntime_tts_benchmark.json`)
+       - promoted `/opt/rocm` warm reuse is likewise about `19 ms`
+         (`validation/workspace/runs/2026-03-23_191356/artifacts/onnxruntime_tts_benchmark.json`)
+       - both runs kept `rocm_reuse_ok=3` and the promoted functional report at
+         `validation/workspace/runs/2026-03-23_191258/report.json` stayed green

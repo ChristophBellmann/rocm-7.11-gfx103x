@@ -558,31 +558,37 @@ The per-case JSON artifact is written to:
 - `validation/workspace/runs/<run_id>/artifacts/onnxruntime_tts_benchmark.json`
 
 Current March 23 2026 in-tree benchmark snapshot on gfx1031:
-- CPU create: about `717 ms`
-- CPU cold inference: about `34 ms`
-- CPU second-run inference: about `35 ms`
-- ROCm create: about `883 ms`
-- ROCm cold inference: about `14422 ms`
-- ROCm second-run inference: about `2441 ms`
-- benchmark artifact: `validation/workspace/runs/2026-03-23_171923/artifacts/onnxruntime_tts_benchmark.json`
+- CPU create: about `724 ms`
+- CPU cold inference: about `36 ms`
+- CPU second-run inference: about `29 ms`
+- ROCm create: about `892 ms`
+- ROCm cold inference: about `14497 ms`
+- ROCm second-run inference: about `20 ms`
+- benchmark artifact: `validation/workspace/runs/2026-03-23_191055/artifacts/onnxruntime_tts_benchmark.json`
 
 This is the current accepted safe in-tree state:
 - repeated real-model ROCm runs stay correct again
 - the current ORT ROCm fix no longer refreshes every small Piper-style 1D conv
   on every run; it refreshes only the confirmed problematic `/dp/flows.3/` and
   `/dp/flows.5/` conv families
-- that narrowed guard keeps correctness while recovering a large part of the
-  warm-reuse regression, though GPU reuse is still slower than CPU on this
-  small real-model benchmark
+- for those `16` guarded conv nodes it now rebuilds the shape-driven state
+  without clearing the per-node forward algorithm cache, so warm reuse no
+  longer reruns a full `miopenFind...` on every inference
+- warm ROCm reuse is therefore back below CPU reuse on this small real-model
+  benchmark while correctness stays green
 
 Current March 23 2026 promoted benchmark snapshot under `/opt/rocm`:
-- CPU create: about `743 ms`
-- CPU cold inference: about `36 ms`
-- CPU second-run inference: about `27 ms`
-- ROCm create: about `906 ms`
-- ROCm cold inference: about `15177 ms`
-- ROCm second-run inference: about `9595 ms`
-- benchmark artifact: `validation/workspace/runs/2026-03-23_162632/artifacts/onnxruntime_tts_benchmark.json`
+- CPU create: about `729 ms`
+- CPU cold inference: about `38 ms`
+- CPU second-run inference: about `30 ms`
+- ROCm create: about `879 ms`
+- ROCm cold inference: about `14556 ms`
+- ROCm second-run inference: about `19 ms`
+- benchmark artifact: `validation/workspace/runs/2026-03-23_191356/artifacts/onnxruntime_tts_benchmark.json`
+
+Current March 23 2026 promoted functional snapshot under `/opt/rocm`:
+- repeated real-model ROCm runs stay green with `compare_ok=3/3`
+- functional artifact: `validation/workspace/runs/2026-03-23_191258/report.json`
 
 That benchmark is intentionally diagnostic, not a pass/fail correctness gate:
 - cold CPU/ROCm measurement must succeed
