@@ -959,3 +959,35 @@
        explicit diagnostic env overrides through workload config:
        - `tts_bench_env`
        - `tts_steady_env`
+
+51. **2026-03-23: The fundamental repeated-run Piper failure is a combined MIOpen solver-family issue plus unsafe ORT forward-cache reuse for small 1D convs**
+   - The decisive narrowing on the frozen real Piper cases was:
+     - forcing all `Conv` nodes under `/dp/flows.3/` and `/dp/flows.5/` to CPU
+       restores stable repeated ROCm runs for `hey mogli`
+     - after that, the problematic families separate into
+       - depthwise `convs_sep.*` (`group=192`, `kernel=3`, `dilation={1,3,9}`)
+       - small 1x1 convs in the same flow blocks (`pre`, `convs_1x1.*`, `proj`)
+   - MIOpen-side root cause:
+     - `GemmFwdRest` is not a safe/default choice for the degenerate-width
+       depthwise 1D-as-2D family
+     - `GemmFwd1x1_0_1` is likewise not a safe/default choice for the matching
+       degenerate-width 1x1 family
+   - ORT-side root cause:
+     - even after excluding those two MIOpen GEMM families, the remaining
+       repeated-run drift still needs ORT to refresh forward state for the
+       small 1D conv family instead of reusing the dimension-keyed forward
+       cache across runs
+   - Validated local fix stack:
+     - MIOpen `gemm.cpp`
+       - exclude depthwise 1D-as-2D convs from `GemmFwdRest`
+       - exclude degenerate-width 1x1 convs from `GemmFwd1x1_0_1`
+     - ORT ROCm `conv.cc`
+       - clear `last_x_dims` and `cached_benchmark_fwd_results` per run for
+         small 1D convs (`X/W` both 3D, input length `<=32`)
+   - Result on the staged frozen Lessac model:
+     - repeated ROCm runs for both `hey mogli` and `mogli` stay stable
+     - normal `validation --profile onnxruntime_in_tree_tts` is green again
+     - benchmark remains mixed:
+       - ROCm cold is still much slower than CPU
+       - but ROCm reuse on the synthetic benchmark is now stable and faster
+         than CPU reuse

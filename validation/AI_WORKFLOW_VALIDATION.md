@@ -269,6 +269,17 @@ A correct end state for `validation/` means:
       - treat the local line as narrowed/partially healed
       - move the remaining fault window downstream or sideways instead of
       attributing the remaining drift to the already-stable traced tensors
+    - for Piper repeated-run conv issues on gfx1031, separate three questions
+      explicitly before claiming a fix:
+      - did a MIOpen solver-family exclusion help only the depthwise
+        `convs_sep.*` family?
+      - did a second exclusion also have to cover the small 1x1 family in the
+        same duration-predictor flows?
+      - does ORT still need to refresh the forward conv cache for the affected
+        small 1D conv family across repeated runs?
+    - if the final fix needs both a MIOpen solver applicability change and a
+      narrow ORT cache-refresh guard, record that as a combined stack fix, not
+      as a “pure MIOpen” or “pure ORT” issue
     - if both a local `flow7` line and the top-level duration path stay stable
       under the same find-mode override while the final output still drifts,
       record that the remaining fault window has moved into the downstream

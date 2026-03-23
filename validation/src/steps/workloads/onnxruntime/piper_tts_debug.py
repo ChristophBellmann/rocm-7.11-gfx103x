@@ -1512,7 +1512,9 @@ def _freeze_dp_random_zeros(model_path: Path, out_path: Path, feed: dict[str, np
             new_nodes.append(node)
 
     if not replaced:
-        raise RuntimeError("did not find RandomNormalLike in Piper ONNX model")
+        # The staged model may already be a deterministically frozen copy.
+        onnx.save(model, str(out_path))
+        return
 
     del model.graph.node[:]
     model.graph.node.extend(new_nodes)
