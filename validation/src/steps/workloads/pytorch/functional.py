@@ -106,29 +106,57 @@ except Exception as e:
 torch.manual_seed(0)
 
 if kind=="audio":
-    # Conv1d on a batch of audio-like tensors.
-    B=16; C=64; L=16384
-    conv=torch.nn.Conv1d(C, 128, kernel_size=33, padding=16, bias=False).to(dev, dtype=torch.float16).eval()
-    x=torch.randn(B, C, L, device=dev, dtype=torch.float16)
-    # Warmup
-    y=conv(x); torch.cuda.synchronize()
-    t0=time.time()
-    runs=0
-    while (time.time()-t0) < min_s:
-        y=conv(x)
-        runs += 1
-    torch.cuda.synchronize()
-    dt=time.time()-t0
-    # Rough FLOP estimate for Conv1d (multiply+add):
-    # out_len ~= L, out_ch=128, in_ch=64, k=33
-    flops = runs * 2.0 * B * 128 * L * 64 * 33
-    print("GPU_OK")
-    print("kind", "audio")
-    print("shape", f"{{B}}x{{C}}x{{L}}")
-    print("dtype", "fp16")
-    print("runs", runs)
-    print("seconds", dt)
-    print("tflops_est", flops/dt/1e12)
+    if need_torchaudio:
+        # Real torchaudio GPU path: repeated resample on batched waveforms.
+        sr_in=48000; sr_out=16000
+        B=32; seconds=8; L=sr_in*seconds
+        x=torch.randn(B, L, device=dev, dtype=torch.float32)
+        y=torchaudio.functional.resample(x, sr_in, sr_out)
+        torch.cuda.synchronize()
+        t0=time.time()
+        runs=0
+        while (time.time()-t0) < min_s:
+            y=torchaudio.functional.resample(x, sr_in, sr_out)
+            # Keep downstream tensor use to avoid compiler/lazy elision.
+            _=torch.mean(torch.abs(y))
+            runs += 1
+        torch.cuda.synchronize()
+        dt=time.time()-t0
+        samples = runs * B * L
+        print("GPU_OK")
+        print("kind", "audio")
+        print("audio_backend", "torchaudio_resample")
+        print("shape", f"{{B}}x{{L}}")
+        print("dtype", "fp32")
+        print("runs", runs)
+        print("seconds", dt)
+        if dt > 0:
+            print("samples_per_s", samples/dt)
+    else:
+        # Fallback path when torchaudio is not required: Conv1d compute.
+        B=16; C=64; L=16384
+        conv=torch.nn.Conv1d(C, 128, kernel_size=33, padding=16, bias=False).to(dev, dtype=torch.float16).eval()
+        x=torch.randn(B, C, L, device=dev, dtype=torch.float16)
+        # Warmup
+        y=conv(x); torch.cuda.synchronize()
+        t0=time.time()
+        runs=0
+        while (time.time()-t0) < min_s:
+            y=conv(x)
+            runs += 1
+        torch.cuda.synchronize()
+        dt=time.time()-t0
+        # Rough FLOP estimate for Conv1d (multiply+add):
+        # out_len ~= L, out_ch=128, in_ch=64, k=33
+        flops = runs * 2.0 * B * 128 * L * 64 * 33
+        print("GPU_OK")
+        print("kind", "audio")
+        print("audio_backend", "conv1d")
+        print("shape", f"{{B}}x{{C}}x{{L}}")
+        print("dtype", "fp16")
+        print("runs", runs)
+        print("seconds", dt)
+        print("tflops_est", flops/dt/1e12)
 else:
     # Conv3d on a small video-like tensor: (B,C,T,H,W)
     B=2; C=32; T=16; H=112; W=112
@@ -260,15 +288,21 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
         metric += f" hsa_override={run_env['HSA_OVERRIDE_GFX_VERSION']}"
     if tflops:
         metric += f" tflops_est={float(tflops):.2f}"
-    m = re.search(r"^torch\\.version\\.rocm\\s+(.+)$", out, re.MULTILINE)
+    m = re.search(r"^torch\.version\.rocm\s+(.+)$", out, re.MULTILINE)
     if m:
         rocm_ver = m.group(1).strip()
         if rocm_ver and rocm_ver not in ("None", "null"):
             metric += f" rocm={rocm_ver}"
-    m = re.search(r"^torchaudio\\.version\\s+(.+)$", out, re.MULTILINE)
+    m = re.search(r"^torchaudio\.version\s+(.+)$", out, re.MULTILINE)
     if m:
         metric += f" torchaudio={m.group(1).strip()}"
-    m = re.search(r"^torchcodec\\.module\\s+(.+)$", out, re.MULTILINE)
+    m = re.search(r"^audio_backend\s+(.+)$", out, re.MULTILINE)
+    if m:
+        metric += f" audio_backend={m.group(1).strip()}"
+    m = re.search(r"^samples_per_s\s+([0-9.]+)$", out, re.MULTILINE)
+    if m:
+        metric += f" samples_per_s={float(m.group(1)):.0f}"
+    m = re.search(r"^torchcodec\.module\s+(.+)$", out, re.MULTILINE)
     if m:
         metric += f" torchcodec=ok"
     m = re.search(r"^shape\s+(.+)$", out, re.MULTILINE)

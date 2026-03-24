@@ -88,6 +88,22 @@ def _probe_torch(ctx: Context, env: dict[str, str], log: Path | None) -> tuple[i
     return 0, ver, hip, rocm
 
 
+def _probe_module(ctx: Context, env: dict[str, str], log: Path | None, module_name: str) -> int:
+    probe = run_cmd(
+        ctx.repo_root,
+        env,
+        [sys.executable, "-c", f"import {module_name}"],
+        30,
+        log,
+    )
+    return int(probe.rc or 0)
+
+
+def _latest_wheel_in_dir(wheel_dir: Path, pattern: str) -> Path | None:
+    wheels = sorted(wheel_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    return wheels[0] if wheels else None
+
+
 def _resolve_package_spec(ctx: Context, spec: str) -> str:
     marker = " @ file://"
     if marker not in spec:
@@ -208,6 +224,8 @@ def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env
     depth = int(sb.get("depth", 0) or 0)
     use_ccache = bool(sb.get("use_ccache", True))
     clean = bool(sb.get("clean", False))
+    build_torchaudio = bool(sb.get("build_torchaudio", False))
+    pytorch_audio_dir = _as_abs(ctx, str(sb.get("pytorch_audio_dir", ctx.git_cache_dir() / "pytorch_audio_rocm711")))
 
     # Checkout/update sources (cached under validation/workspace).
     if update_checkout or not (pytorch_dir / ".git").exists():
@@ -231,6 +249,23 @@ def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env
         r = run_cmd(ctx.repo_root, env, cmd, t_checkout, log)
         if r.rc != 0:
             return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), f"checkout rc={r.rc}")
+    if build_torchaudio and (update_checkout or not (pytorch_audio_dir / ".git").exists()):
+        t_checkout = int(cfg.get("timeouts_s", {}).get("pytorch_checkout", 3600))
+        checkout_audio_script = ctx.repo_root / "external-builds" / "pytorch" / "pytorch_audio_repo.py"
+        audio_cmd = [
+            sys.executable,
+            str(checkout_audio_script),
+            "checkout",
+            "--checkout-dir",
+            str(pytorch_audio_dir),
+            "--torch-dir",
+            str(pytorch_dir),
+        ]
+        if depth > 0:
+            audio_cmd += ["--depth", str(depth)]
+        r_audio = run_cmd(ctx.repo_root, env, audio_cmd, t_checkout, log)
+        if r_audio.rc != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r_audio.dur_ms), f"torchaudio checkout rc={r_audio.rc}")
 
     # Build + install into the current venv via TheRock tooling.
     build_script = ctx.repo_root / "external-builds" / "pytorch" / "build_prod_wheels.py"
@@ -253,9 +288,12 @@ def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env
         "--pytorch-rocm-arch",
         arch,
         "--no-build-triton",
-        "--no-build-pytorch-audio",
         "--no-build-pytorch-vision",
     ]
+    if build_torchaudio:
+        cmd += ["--pytorch-audio-dir", str(pytorch_audio_dir)]
+    else:
+        cmd += ["--no-build-pytorch-audio"]
     if rocm_sdk_version:
         cmd += ["--rocm-sdk-version", rocm_sdk_version]
     if use_ccache:
@@ -271,6 +309,21 @@ def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env
     rc, ver, hip, rocm = _probe_torch(ctx, env, log)
     if rc != 0 or not ver:
         return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), "torch import failed after source build")
+    if build_torchaudio:
+        audio_wheel = _latest_wheel_in_dir(wheels_dir, "torchaudio-*.whl")
+        if audio_wheel is None:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), f"torchaudio build requested but no wheel in {wheels_dir}")
+        r_audio_install = run_cmd(
+            ctx.repo_root,
+            env,
+            [sys.executable, "-m", "pip", "install", "-I", "--no-deps", str(audio_wheel)],
+            3600,
+            log,
+        )
+        if r_audio_install.rc != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r_audio_install.dur_ms), f"torchaudio install rc={r_audio_install.rc}")
+        if _probe_module(ctx, env, log, "torchaudio") != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r_audio_install.dur_ms), "torchaudio import failed after source build")
 
     marker = {
         "index_url": index_url,
@@ -336,6 +389,8 @@ def _ensure_pytorch_source_build_in_tree(
     depth = int(sb.get("depth", 0) or 0)
     use_ccache = bool(sb.get("use_ccache", True))
     clean = bool(sb.get("clean", False))
+    build_torchaudio = bool(sb.get("build_torchaudio", False))
+    pytorch_audio_dir = _as_abs(ctx, str(sb.get("pytorch_audio_dir", ctx.git_cache_dir() / "pytorch_audio_rocm711")))
 
     wheels_dir.mkdir(parents=True, exist_ok=True)
     pip_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -361,6 +416,24 @@ def _ensure_pytorch_source_build_in_tree(
         rc, dur_ms = _run_logged(ctx.repo_root, env, cmd, t_checkout, log)
         if rc != 0:
             return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms), f"checkout rc={rc}")
+    if build_torchaudio and (update_checkout or not (pytorch_audio_dir / ".git").exists()):
+        t_checkout = int(cfg.get("timeouts_s", {}).get("pytorch_checkout", 3600))
+        checkout_audio_script = ctx.repo_root / "external-builds" / "pytorch" / "pytorch_audio_repo.py"
+        audio_cmd = [
+            sys.executable,
+            str(checkout_audio_script),
+            "checkout",
+            "--checkout-dir",
+            str(pytorch_audio_dir),
+            "--torch-dir",
+            str(pytorch_dir),
+            "--no-patch",
+        ]
+        if depth > 0:
+            audio_cmd += ["--depth", str(depth)]
+        rc_audio, dur_ms_audio = _run_logged(ctx.repo_root, env, audio_cmd, t_checkout, log)
+        if rc_audio != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms_audio), f"torchaudio checkout rc={rc_audio}")
 
     build_env = activated_env(ctx.env_base(), rocm_dist)
     build_env.update(env)
@@ -454,6 +527,50 @@ def _ensure_pytorch_source_build_in_tree(
     r2 = run_cmd(ctx.repo_root, build_env, [sys.executable, "-m", "pip", "install", "-I", "--no-deps", str(wheel)], 3600, log)
     if r2.rc != 0:
         return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r2.dur_ms), f"install rc={r2.rc}")
+    extra_dur_ms = 0
+    if build_torchaudio:
+        audio_env = dict(build_env)
+        audio_env.update(
+            {
+                "USE_ROCM": "1",
+                "USE_CUDA": "0",
+                "USE_FFMPEG": "0",
+                "USE_OPENMP": "1",
+                "BUILD_SOX": "0",
+            }
+        )
+        rc_audio_build, dur_ms_audio_build = _run_logged(
+            pytorch_audio_dir,
+            audio_env,
+            [sys.executable, "setup.py", "bdist_wheel"],
+            t_build,
+            log,
+        )
+        extra_dur_ms += dur_ms_audio_build
+        if rc_audio_build != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms + r2.dur_ms + extra_dur_ms), f"torchaudio build rc={rc_audio_build}")
+        audio_wheel = _latest_wheel_in_dir(pytorch_audio_dir / "dist", "torchaudio-*.whl")
+        if audio_wheel is None:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms + r2.dur_ms + extra_dur_ms), f"no torchaudio wheel found under {pytorch_audio_dir / 'dist'}")
+        try:
+            import shutil
+
+            dst_audio = wheels_dir / audio_wheel.name
+            shutil.copyfile(audio_wheel, dst_audio)
+        except Exception:
+            pass
+        r_audio_install = run_cmd(
+            ctx.repo_root,
+            build_env,
+            [sys.executable, "-m", "pip", "install", "-I", "--no-deps", str(audio_wheel)],
+            3600,
+            log,
+        )
+        extra_dur_ms += r_audio_install.dur_ms
+        if r_audio_install.rc != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms + r2.dur_ms + extra_dur_ms), f"torchaudio install rc={r_audio_install.rc}")
+        if _probe_module(ctx, build_env, log, "torchaudio") != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms + r2.dur_ms + extra_dur_ms), "torchaudio import failed after source build")
 
     rc2, ver, hip, rocm = _probe_torch(ctx, build_env, log)
     if rc2 != 0 or not ver:
@@ -469,6 +586,7 @@ def _ensure_pytorch_source_build_in_tree(
         "torch_version": ver,
         "torch_hip_version": hip,
         "torch_rocm_version": rocm,
+        "torchaudio_built": build_torchaudio,
     }
     try:
         (wheels_dir / "BUILD_INFO.json").write_text(json.dumps(marker, indent=2, sort_keys=True), encoding="utf-8")
@@ -478,7 +596,9 @@ def _ensure_pytorch_source_build_in_tree(
     metric = f"in-tree source build torch={ver} hip={hip}"
     if rocm:
         metric += f" rocm={rocm}"
-    return StepResult("<meta>", "PyTorch setup", "OK", fmt_duration(dur_ms + r2.dur_ms), metric)
+    if build_torchaudio:
+        metric += " torchaudio=ok"
+    return StepResult("<meta>", "PyTorch setup", "OK", fmt_duration(dur_ms + r2.dur_ms + extra_dur_ms), metric)
 
 
 def ensure_pytorch(
@@ -516,19 +636,18 @@ def ensure_pytorch(
             expected_ver = str(wl.get("expected_version_substr", "") or "").strip()
             expected_hip = str(wl.get("expected_hip_substr", "") or "").strip()
             expected_rocm = str(wl.get("expected_rocm_substr", "") or "").strip()
+            require_torchaudio = bool(wl.get("require_torchaudio", False))
             if not force:
                 probe_rc, installed_ver, installed_hip, installed_rocm = _probe_torch(ctx, env, log)
                 if probe_rc == 0 and installed_ver:
-                    if expected_ver and expected_ver not in installed_ver:
-                        pass
-                    elif expected_hip and expected_hip not in installed_hip:
-                        pass
-                    elif expected_rocm and expected_rocm not in installed_rocm:
-                        pass
-                    elif not installed_hip and not installed_rocm:
-                        # Likely a CPU-only torch.
-                        pass
-                    else:
+                    torchaudio_missing = require_torchaudio and _probe_module(ctx, env, log, "torchaudio") != 0
+                    if (
+                        not torchaudio_missing
+                        and (not expected_ver or expected_ver in installed_ver)
+                        and (not expected_hip or expected_hip in installed_hip)
+                        and (not expected_rocm or expected_rocm in installed_rocm)
+                        and (installed_hip or installed_rocm)
+                    ):
                         return None
             return _ensure_pytorch_source_build_in_tree(ctx, cfg, env, log, rocm_dist=rocm_dist)
         return _ensure_pytorch_source_build_rocm_sdk(ctx, cfg, env, log)

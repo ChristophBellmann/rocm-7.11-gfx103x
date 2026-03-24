@@ -2275,6 +2275,7 @@ def _step_miopen_smoke(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
 
 def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     steps_cfg = cfg.get("steps", {})
+    pytorch_cfg = cfg.get("workloads", {}).get("pytorch", {}) or {}
     plan: list[Step] = []
 
     def group_enabled(group: str) -> bool:
@@ -2304,8 +2305,10 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("open_interpreter", "open_interpreter", "Open Interpreter (pip) smoke", "minutes (pip), <2s help", step_open_interpreter)
     add("whisper", "whisper", "Whisper (python) smoke", "<5s run (if installed)", step_whisper)
     add("mfem_hip", "mfem_hip", "MFEM (HIP) build+run", "minutes (clone/build), <5s run", step_mfem_hip)
-    add("pytorch", "pytorch_audio", "PyTorch (audio) conv", "typ. ~5s (sustained)", step_pytorch_audio)
-    add("pytorch", "pytorch_video", "PyTorch (video) conv", "typ. ~5s (sustained)", step_pytorch_video)
+    if bool(pytorch_cfg.get("run_audio", True)):
+        add("pytorch", "pytorch_audio", "PyTorch (audio) conv", "typ. ~5s (sustained)", step_pytorch_audio)
+    if bool(pytorch_cfg.get("run_video", True)):
+        add("pytorch", "pytorch_video", "PyTorch (video) conv", "typ. ~5s (sustained)", step_pytorch_video)
     add("petsc_hip", "petsc_hip", "PETSc (HIP) build+solve", "minutes (clone/build), ~5s solve", step_petsc_hip)
     add("onnxruntime_rocm_wheel", "onnxruntime_rocm_wheel", "ONNX Runtime (ROCm) wheel build", "hours (clone/build)", step_onnxruntime_rocm_wheel)
     add("onnxruntime_infer", "onnxruntime_infer", "ONNX Runtime inference (ROCm)", "typ. ~5s (continuous)", _step_onnxruntime_infer)

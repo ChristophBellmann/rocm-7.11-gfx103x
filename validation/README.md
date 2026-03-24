@@ -201,8 +201,12 @@ the custom ROCm stack produced by this repository.
   - Branch: `christoph/gfx1031-buildfixes`
 - Typical wheel output:
   - `validation/workspace/cache/wheels/pytorch_rocm711/` (or configured wheel dir)
+  - when `workloads.pytorch.source_build.build_torchaudio: true`:
+    - `torchaudio-*.whl` is also built into the same wheel output directory
 - Preferred validation-side source checkout for the source-build helper:
   - `validation/workspace/cache/git/pytorch_rocm711/`
+  - optional torchaudio checkout for source builds:
+    - `validation/workspace/cache/git/pytorch_audio_rocm711/`
 - Typical promote target:
   - `/opt/rocm/wheels/pytorch_rocm711/`
   - stable alias:

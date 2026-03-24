@@ -1,23 +1,19 @@
-# Build PyTorch from source against the repo's in-tree ROCm 7.11 dist, then run
-# the GPU compute validations (Conv1d + Conv3d).
-#
-# This is intentionally not part of the default `all` profile because it can
-# take a long time and downloads/builds a lot of data.
+# Run only the PyTorch audio validation step with required torchaudio support.
+# This is useful for quick/manual torchaudio-focused checks.
 run:
-  profile: pytorch_rocm711_source
+  profile: pytorch_audio_only
   ask_before_downloads: true
   downloads_enabled: true
 
 workloads:
   pytorch:
     auto_install: true
-    # Enforce that we really built/installed a ROCm 7.11 torch.
-    # NOTE: `torch.version.hip` reflects the HIP toolchain version (e.g. 7.2.x),
-    # while `torch.version.rocm` reflects the ROCm release (e.g. 7.11.x).
     expected_rocm_substr: "7.11"
     use_in_tree_rocm: true
     require_rocm_prefix: "in-tree"
     require_torchaudio: true
+    run_audio: true
+    run_video: false
     source_build:
       enabled: true
       backend: "in-tree"
@@ -28,7 +24,7 @@ workloads:
       pip_cache_dir: "validation/workspace/cache/pip"
       build_torchaudio: true
       use_ccache: true
-      clean: true
+      clean: false
 
 steps:
   rocm_sanity: true

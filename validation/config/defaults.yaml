@@ -24,6 +24,9 @@ workloads:
     # pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
     # packages: ["torch", "torchvision"]
     min_bench_s: 5.0
+    # Enable/disable individual PyTorch validation sub-steps.
+    run_audio: true
+    run_video: true
     # Optional: if set, auto-install will ensure the installed torch version
     # string contains this substring (e.g. "+rocm6.2"). If mismatched and
     # downloads are enabled, it will reinstall.
@@ -53,7 +56,8 @@ workloads:
     # The source of truth for promoted custom gfx1031 PyTorch-family wheels is the
     # separate fork's `tools/rocm_release/` flow.
     # This path installs ROCm SDK Python packages and produces a ROCm-enabled
-    # `torch` wheel for the configured arch.
+    # `torch` wheel for the configured arch. Optional: also build/install a
+    # matching `torchaudio` wheel in the validation venv.
     source_build:
       enabled: false
       # backend: "rocm-sdk" builds against ROCm SDK Python packages from a PEP503
@@ -70,8 +74,10 @@ workloads:
       gitrepo_origin: "https://github.com/ChristophBellmann/rocm-7.11-pytorch-gfx103x.git"
       # Cache dirs (relative to repo root unless absolute).
       pytorch_dir: "validation/workspace/cache/git/pytorch_rocm711"
+      pytorch_audio_dir: "validation/workspace/cache/git/pytorch_audio_rocm711"
       wheels_dir: "validation/workspace/cache/wheels/pytorch_rocm711"
       pip_cache_dir: "validation/workspace/cache/pip"
+      build_torchaudio: false
       # If true, re-run checkout even if pytorch_dir already exists.
       update_checkout: false
       # If set (>0), do a shallow fetch for initial checkout.
