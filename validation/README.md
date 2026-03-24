@@ -207,6 +207,9 @@ the custom ROCm stack produced by this repository.
   - `validation/workspace/cache/git/pytorch_rocm711/`
   - optional torchaudio checkout for source builds:
     - `validation/workspace/cache/git/pytorch_audio_rocm711/`
+  - torchaudio compatibility patches are versioned in this main repo and applied
+    automatically during `pytorch_audio_repo.py checkout` (patchset `rocm-custom`):
+    - `external-builds/pytorch/patches/pytorch_audio/rocm-custom/pytorch_audio/base/`
 - Typical promote target:
   - `/opt/rocm/wheels/pytorch_rocm711/`
   - stable alias:

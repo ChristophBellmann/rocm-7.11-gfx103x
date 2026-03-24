@@ -1,0 +1,126 @@
+From 2ca3ae1b5ad77cb525b27e3b2d75c4cda073bcf6 Mon Sep 17 00:00:00 2001
+From: CB <christoph.bellmann@gmail.com>
+Date: Tue, 24 Mar 2026 03:47:15 +0100
+Subject: [PATCH] torchaudio: restore legacy info/backend compatibility APIs
+
+---
+ src/torchaudio/__init__.py | 91 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 91 insertions(+)
+
+diff --git a/src/torchaudio/__init__.py b/src/torchaudio/__init__.py
+index 6e2a9652..66ca66fc 100644
+--- a/src/torchaudio/__init__.py
++++ b/src/torchaudio/__init__.py
+@@ -1,4 +1,5 @@
+ import os
++from collections import namedtuple
+ from typing import BinaryIO, Optional, Tuple, Union
+ 
+ import torch
+@@ -15,6 +16,91 @@ except ImportError:
+     pass
+ 
+ 
++# Compatibility facade for legacy torchaudio backend metadata APIs.
++AudioMetaData = namedtuple(
++    "AudioMetaData",
++    ["sample_rate", "num_frames", "num_channels", "bits_per_sample", "encoding"],
++)
++_CURRENT_AUDIO_BACKEND = "torchcodec"
++
++
++def list_audio_backends():
++    # Legacy API kept for compatibility with downstream code.
++    return [_CURRENT_AUDIO_BACKEND]
++
++
++def get_audio_backend():
++    # Legacy API kept for compatibility with downstream code.
++    return _CURRENT_AUDIO_BACKEND
++
++
++def set_audio_backend(backend):
++    # Legacy API kept for compatibility with downstream code.
++    if backend in (None, "", _CURRENT_AUDIO_BACKEND):
++        return
++    raise ValueError(
++        f"Unsupported backend '{backend}'. "
++        f"Only '{_CURRENT_AUDIO_BACKEND}' is available in this build."
++    )
++
++
++def _bits_per_sample_from_sample_format(sample_format):
++    sf = str(sample_format or "").lower()
++    mapping = {
++        "u8": 8,
++        "s16": 16,
++        "s16p": 16,
++        "s24": 24,
++        "s32": 32,
++        "s32p": 32,
++        "flt": 32,
++        "fltp": 32,
++        "dbl": 64,
++        "dblp": 64,
++    }
++    return mapping.get(sf, 0)
++
++
++def _num_frames_from_meta(meta):
++    # TorchCodec metadata currently does not expose an explicit num_frames.
++    # Keep a cheap estimate from duration/sample_rate for compatibility.
++    sr = int(getattr(meta, "sample_rate", 0) or 0)
++    dur = float(getattr(meta, "duration_seconds", 0.0) or 0.0)
++    return int(round(sr * dur)) if sr > 0 and dur > 0 else 0
++
++
++def info(
++    uri: Union[BinaryIO, str, os.PathLike],
++    format: Optional[str] = None,
++    buffer_size: int = 4096,
++    backend: Optional[str] = None,
++) -> AudioMetaData:
++    # Legacy API kept for compatibility; backed by TorchCodec metadata.
++    if backend not in (None, "", _CURRENT_AUDIO_BACKEND):
++        raise ValueError(
++            f"Unsupported backend '{backend}'. "
++            f"Only '{_CURRENT_AUDIO_BACKEND}' is available in this build."
++        )
++    from torchcodec.decoders import AudioDecoder
++
++    dec = AudioDecoder(uri)
++    meta = dec.metadata
++    sample_rate = int(getattr(meta, "sample_rate", 0) or 0)
++    num_channels = int(getattr(meta, "num_channels", 0) or 0)
++    num_frames = _num_frames_from_meta(meta)
++    bits_per_sample = _bits_per_sample_from_sample_format(
++        getattr(meta, "sample_format", None)
++    )
++    encoding = str(getattr(meta, "codec", "UNKNOWN") or "UNKNOWN")
++    return AudioMetaData(
++        sample_rate=sample_rate,
++        num_frames=num_frames,
++        num_channels=num_channels,
++        bits_per_sample=bits_per_sample,
++        encoding=encoding,
++    )
++
++
+ def load(
+     uri: Union[BinaryIO, str, os.PathLike],
+     frame_offset: int = 0,
+@@ -190,6 +276,11 @@ def save(
+ 
+ 
+ __all__ = [
++    "AudioMetaData",
++    "list_audio_backends",
++    "get_audio_backend",
++    "set_audio_backend",
++    "info",
+     "load",
+     "load_with_torchcodec",
+     "save_with_torchcodec",
+-- 
+2.43.0
+

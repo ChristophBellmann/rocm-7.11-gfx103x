@@ -260,6 +260,8 @@ def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env
             str(pytorch_audio_dir),
             "--torch-dir",
             str(pytorch_dir),
+            "--patchset",
+            "rocm-custom",
         ]
         if depth > 0:
             audio_cmd += ["--depth", str(depth)]
@@ -427,7 +429,8 @@ def _ensure_pytorch_source_build_in_tree(
             str(pytorch_audio_dir),
             "--torch-dir",
             str(pytorch_dir),
-            "--no-patch",
+            "--patchset",
+            "rocm-custom",
         ]
         if depth > 0:
             audio_cmd += ["--depth", str(depth)]
