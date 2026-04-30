@@ -1,73 +1,93 @@
-# ROCm 7.11 release helpers
+# PyTorch ROCm 7.11 integration notes
 
-This directory contains the TheRock-side helpers for the custom ROCm 7.11 PyTorch wheel family.
+This directory is the TheRock-side integration boundary for the custom ROCm 7.11
+PyTorch wheel family.
 
-Scope:
-- build the custom `torch` wheel from this repo
-- build matching companion wheels for `torchcodec` and `torchaudio`
-- promote all three wheels to `/opt/rocm/wheels/pytorch_rocm711/`
-- install the promoted wheel family into project venvs with the required ROCm runtime environment
+The source of truth for PyTorch wheel packaging and consumer venv creation is now
+the PyTorch fork:
 
-TheRock validation should consume the promoted wheel family from `/opt/rocm` and validate runtime behavior.
-It should not own the packaging scripts.
-
-## Layout
-
-- `build_torchcodec_rocm_wheel.sh`
-- `build_torchaudio_rocm_wheel.sh`
-- `install_pytorch_rocm_wheel_to_opt.sh`
-- `install_torchcodec_rocm_wheel_to_opt.sh`
-- `install_torchaudio_rocm_wheel_to_opt.sh`
-- `install_pytorch_rocm_wheel_to_venv.sh`
-
-Default local release root:
-- `validation/workspace/cache/git/`
-- `validation/workspace/cache/wheels/pytorch_rocm711/`
-- `validation/workspace/cache/venvs/`
-- `validation/workspace/cache/install-backups/`
-
-Canonical override:
-- `RELEASE_ROOT=/path/to/release-state`
-
-Compatibility note:
-- `WORKSPACE_DIR` is still accepted as a legacy alias for `RELEASE_ROOT`.
-
-## Typical flow
-
-Build `torch` with the existing repo-native flow so that a wheel lands in `./dist/`.
-Then:
-
-```bash
-./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh validation/workspace/cache/wheels/pytorch_rocm711/torch-*.whl
-./validation/scripts/pytorch_rocm/build_torchcodec_rocm_wheel.sh --rocm-prefix /opt/rocm
-./validation/scripts/pytorch_rocm/install_torchcodec_rocm_wheel_to_opt.sh
-./validation/scripts/pytorch_rocm/build_torchaudio_rocm_wheel.sh --rocm-prefix /opt/rocm
-./validation/scripts/pytorch_rocm/install_torchaudio_rocm_wheel_to_opt.sh
+```text
+ChristophBellmann/rocm-7.11-pytorch-gfx103x
+branch: christoph/gfx1031-buildfixes
+path: tools/rocm_release/
 ```
 
-`install_pytorch_rocm_wheel_to_opt.sh` rewrites embedded RPATH/RUNPATH entries
-inside the `torch` wheel before promotion so the installed wheel no longer
-points back to an in-tree ROCm build directory such as
-`build-stage2/dist/rocm/lib`.
+## Policy
 
-That keeps the flow aligned with the other custom wheel families:
-- build and verify against the repo-local output first
-- promote a system-safe wheel into `/opt/rocm`
-- validate the promoted install separately against `/opt/rocm`
+TheRock owns:
+- ROCm stack build and validation
+- in-tree vs. promoted `/opt/rocm` validation profiles
+- integration wrappers where needed
 
-Consumer projects can then install the promoted family with:
+The PyTorch fork owns:
+- `torch` wheel promotion helpers
+- `torchcodec` and `torchaudio` companion wheel helpers
+- NumPy ABI probe helpers
+- deterministic ROCm/PyTorch project venv creation
+
+Do not reimplement project venv logic in this repo. Use the canonical helper:
 
 ```bash
-./validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh --venv .venv --rocm-prefix /opt/rocm
+cd /path/to/rocm-7.11-pytorch-gfx103x
+bash tools/rocm_release/create_rocm_venv.sh \
+  --venv .venv \
+  --rocm-prefix /opt/rocm \
+  -y
 ```
 
-Stable system aliases:
-- `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl`
-- `/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl`
-- `/opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl`
+For application packages, use the generated constraint-aware wrapper:
 
-## Notes
+```bash
+.venv/bin/pip-rocm install openai-whisper
+```
 
-- These helpers assume a system ROCm install under `/opt/rocm` for the promoted/consumer path.
-- If `/opt/rocm` is not available yet, they can fall back to `<repo>/<build-dir>/dist/rocm` for local build verification.
-- The consuming venv should currently pin `numpy<2` until the custom wheel family is rebuilt for NumPy 2.x ABI compatibility.
+## NumPy ABI policy
+
+New custom PyTorch wheel families should be rebuilt and probed with:
+
+```text
+NUMPY_SPEC='numpy>=2,<3'
+```
+
+Use `numpy<2` only for explicit legacy reproduction of old NumPy-1 ABI wheels.
+TensorFlow keeps its own isolated runtime pins and is not part of this PyTorch
+policy.
+
+## Promoted wheel aliases
+
+The promoted PyTorch wheel family lives under:
+
+```text
+/opt/rocm/wheels/pytorch_rocm711/
+```
+
+Stable aliases:
+
+```text
+/opt/rocm/wheels/pytorch_rocm711/torch-current.whl
+/opt/rocm/wheels/pytorch_rocm711/torchcodec-current.whl
+/opt/rocm/wheels/pytorch_rocm711/torchaudio-current.whl
+```
+
+## Build/promote flow
+
+After building `torch` in the PyTorch fork and after NumPy ABI probing succeeds:
+
+```bash
+cd /path/to/rocm-7.11-pytorch-gfx103x
+sudo bash tools/rocm_release/install_pytorch_rocm_wheel_to_opt.sh ./dist/torch-*.whl
+sudo bash tools/rocm_release/install_torchcodec_rocm_wheel_to_opt.sh
+sudo bash tools/rocm_release/install_torchaudio_rocm_wheel_to_opt.sh
+```
+
+Then validate from this TheRock repo:
+
+```bash
+python3 validation/validate.py --profile pytorch_rocm711_promoted --yes --power --log
+python3 validation/validate.py --profile whisper --yes --power --log
+```
+
+## Deprecated local venv helper
+
+`validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_venv.sh` is kept
+only as a pointer to the canonical helper and exits intentionally.
