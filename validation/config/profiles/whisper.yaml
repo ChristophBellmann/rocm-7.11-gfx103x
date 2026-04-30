@@ -7,10 +7,14 @@ run:
 workloads:
   # Whisper requires ROCm-enabled PyTorch. Default to the locally-installed
   # ROCm 7.11 torch wheel under /opt/rocm.
+  #
+  # NumPy policy:
+  # - New custom PyTorch wheel families are expected to be rebuilt/probed with NumPy 2.
+  # - Use numpy<2 only for explicit legacy wheel reproduction.
   pytorch:
     auto_install: true
     packages:
-      - "numpy<2"
+      - "numpy>=2,<3"
       - "torch @ file:///opt/rocm/wheels/pytorch_rocm711/torch-current.whl"
     expected_rocm_substr: "7.11"
   whisper:
