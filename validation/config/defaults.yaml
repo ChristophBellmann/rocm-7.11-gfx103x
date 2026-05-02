@@ -207,7 +207,7 @@ workloads:
     # runs the internal debug helper as its own validation step and stores the
     # JSON report plus exact-chain repro artifacts under the run artifact dir.
     tts_flow_probe_preset: "dp_flow3_branch"
-    tts_flow_probe_case_label: "mogli"
+    tts_flow_probe_case_label: "neutral_case_short"
     tts_flow_probe_graph_mode: "full"
     tts_flow_probe_opt_level: "disable"
     tts_flow_probe_timeout_s: 300
@@ -228,7 +228,7 @@ workloads:
     tts_bench_timeout_s: 900
     tts_bench_rocm_provider_options: []
     tts_bench_env: []
-    tts_steady_case_label: "mogli"
+    tts_steady_case_label: "neutral_case_short"
     tts_steady_iters: 6
     tts_steady_timeout_s: 900
     tts_steady_rocm_provider_options: []
