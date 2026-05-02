@@ -42,7 +42,7 @@ Matrix-Artefakte:
 - JSON: [`miopen_workspace_matrix.json`](/media/christoph/some_space/Compute/TheRock_gfx1031/validation/workspace/debug/miopen_workspace_matrix_run2/miopen_workspace_matrix.json)
 - Auto-Report: [`miopen_workspace_report.md`](/media/christoph/some_space/Compute/TheRock_gfx1031/validation/workspace/debug/miopen_workspace_matrix_run2/miopen_workspace_report.md)
 
-Pflichtmatrix mit `en_US-lessac-low.onnx`, Case `mogli`:
+Pflichtmatrix mit `en_US-lessac-low.onnx`, Case `neutral_case_short`:
 
 | Case | Änderung | Warning | Provided | Max required | Solver | ROCm-Output |
 | --- | --- | --- | --- | --- | --- | --- |
