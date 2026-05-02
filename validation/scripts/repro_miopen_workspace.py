@@ -453,7 +453,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--child", action="store_true", help="Internal child mode for one isolated run")
     ap.add_argument("--model", default=str(default_model_path()))
     ap.add_argument("--case-file", default="")
-    ap.add_argument("--case-label", default="mogli")
+    ap.add_argument("--case-label", default="neutral_case_short")
     ap.add_argument("--out-dir", default=str(validation_root() / "workspace" / "debug" / "miopen_workspace_matrix"))
     ap.add_argument("--provider-options-json", default="{}")
     ap.add_argument("--profile-prefix", default="")
