@@ -2,7 +2,7 @@
   "model": "en_US-lessac-low.onnx",
   "cases": [
     {
-      "label": "mogli",
+      "label": "neutral_case_short",
       "phonemes": [
         "m",
         "\u02c8",
@@ -38,7 +38,7 @@
       ]
     },
     {
-      "label": "hey mogli",
+      "label": "neutral_case_phrase",
       "phonemes": [
         "h",
         "\u02c8",
