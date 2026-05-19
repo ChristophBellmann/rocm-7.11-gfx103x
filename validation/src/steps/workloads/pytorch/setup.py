@@ -451,10 +451,21 @@ def _ensure_pytorch_source_build_in_tree(
     build_env.setdefault("USE_CUDA", "0")
     build_env.setdefault("USE_ROCM", "1")
     build_env.setdefault("USE_ROCM_HIPBLASLT", "0")
+    build_env.setdefault("USE_NCCL", "0")
+    build_env.setdefault("USE_RCCL", "0")
     build_env.setdefault("USE_MPI", "0")
     build_env.setdefault("USE_NUMA", "0")
     build_env.setdefault("BUILD_TEST", "0")
     build_env.setdefault("USE_NINJA", "1")
+
+    # WORKAROUND: The new HIP CLR build (therock-7.13) doesn't link
+    # libamdhip64.so against librocm_smi64.so.  PyTorch's libtorch_hip.so
+    # references rsmi_init but can't resolve it through the NEEDED chain.
+    # Preload the SMI library so the symbol is available at dlopen time.
+    rsmi_lib = rocm_dist / "lib" / "librocm_smi64.so"
+    if rsmi_lib.is_file():
+        existing = build_env.get("LD_PRELOAD", "")
+        build_env["LD_PRELOAD"] = f"{rsmi_lib}:{existing}" if existing else str(rsmi_lib)
 
     arch = str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031"))
     build_env["PYTORCH_ROCM_ARCH"] = arch

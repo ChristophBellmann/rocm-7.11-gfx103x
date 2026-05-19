@@ -700,8 +700,8 @@ function(therock_cmake_subproject_activate target_name)
   # See also https://github.com/ROCm/TheRock/issues/670.
   list(APPEND _build_env_pairs "--unset=ROCM_PATH")
   list(APPEND _build_env_pairs "--unset=ROCM_DIR")
-  list(APPEND _build_env_pairs "--unset=HIP_PATH")
-  list(APPEND _build_env_pairs "--unset=HIP_DIR")
+  list(APPEND _build_env_pairs "HIP_PATH=${DEFAULT_ROCM_PATH}")
+  list(APPEND _build_env_pairs "HIP_DIR=${DEFAULT_ROCM_PATH}")
 
   # Handle compiler toolchain.
   set(_compiler_toolchain_addl_depends)

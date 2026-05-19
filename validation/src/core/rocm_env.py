@@ -18,6 +18,15 @@ def activated_env(base_env: dict[str, str], rocm_dist: Path) -> dict[str, str]:
         p1 = rocm_dist / "lib" / "llvm" / "amdgcn" / "bitcode"
         p2 = rocm_dist / "amdgcn" / "bitcode"
         env["HIP_DEVICE_LIB_PATH"] = str(p1 if p1.is_dir() else p2)
+
+    # WORKAROUND: HIP CLR (therock-7.13) doesn't link libamdhip64.so against
+    # librocm_smi64.so. PyTorch/libtorch_hip.so references rsmi_init but can't
+    # resolve it. Preload the SMI library to make the symbol available.
+    rsmi_lib = rocm_dist / "lib" / "librocm_smi64.so"
+    if rsmi_lib.is_file():
+        existing = env.get("LD_PRELOAD", "")
+        env["LD_PRELOAD"] = f"{rsmi_lib}:{existing}" if existing else str(rsmi_lib)
+
     return env
 
 

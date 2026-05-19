@@ -791,6 +791,8 @@ for PyTorch >= 2.8. See status of issue https://github.com/ROCm/TheRock/issues/2
 
     env["USE_ROCM"] = "ON"
     env["USE_CUDA"] = "OFF"
+    env["USE_NCCL"] = "OFF"
+    env["USE_RCCL"] = "OFF"
     env["USE_MPI"] = "OFF"
     env["USE_NUMA"] = "OFF"
     env["USE_OPENMP"] = "1"
