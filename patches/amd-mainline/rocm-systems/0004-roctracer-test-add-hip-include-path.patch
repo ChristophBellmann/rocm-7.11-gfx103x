@@ -1,0 +1,13 @@
+diff --git a/projects/roctracer/test/CMakeLists.txt b/projects/roctracer/test/CMakeLists.txt
+index 95563d5b9f..03a2409600 100644
+--- a/projects/roctracer/test/CMakeLists.txt
++++ b/projects/roctracer/test/CMakeLists.txt
+@@ -124,7 +124,7 @@ add_dependencies(mytest copy)
+ ## Build the ROCTX test
+ set_source_files_properties(app/roctx_test.cpp PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
+ hip_add_executable(roctx_test app/roctx_test.cpp)
+-## Adding generated build-id as hip_add_executable doesn't generate automatically
++target_include_directories(roctx_test PRIVATE ${ROCM_PATH}/include)
+ target_link_options(roctx_test PRIVATE "-Wl,--build-id=md5")
+ target_link_libraries(roctx_test Threads::Threads roctx)
+ add_dependencies(mytest roctx_test)
