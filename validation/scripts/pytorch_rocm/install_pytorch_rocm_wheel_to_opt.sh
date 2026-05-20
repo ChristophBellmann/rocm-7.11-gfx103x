@@ -43,12 +43,30 @@ PY
   local torch_c
   torch_c="$(find "${unpack_dir}/torch" -maxdepth 1 -type f -name '_C*.so' | head -n1 || true)"
   if [[ -n "${torch_c}" ]]; then
-    patchelf --force-rpath --set-rpath '$ORIGIN:$ORIGIN/lib' "${torch_c}"
+    patchelf --force-rpath --set-rpath '$ORIGIN:$ORIGIN/lib:/opt/rocm/lib:/opt/rocm/lib/llvm/lib' "${torch_c}"
   fi
 
   while IFS= read -r sofile; do
-    patchelf --force-rpath --set-rpath '$ORIGIN' "${sofile}"
+    patchelf --force-rpath --set-rpath '$ORIGIN:/opt/rocm/lib:/opt/rocm/lib/llvm/lib' "${sofile}"
   done < <(find "${unpack_dir}/torch/lib" -maxdepth 1 -type f \( -name '*.so' -o -name '*.so.*' \) | sort)
+
+  local cpu_so="${unpack_dir}/torch/lib/libtorch_cpu.so"
+  if [[ -f "${cpu_so}" ]]; then
+    if readelf -dW "${cpu_so}" | rg -q "NEEDED.*libgomp\\.so\\.1"; then
+      patchelf --replace-needed libgomp.so.1 libomp.so "${cpu_so}"
+    fi
+    if nm -D --undefined-only "${cpu_so}" | rg -q "__kmpc_" \
+      && ! readelf -dW "${cpu_so}" | rg -q "NEEDED.*libomp"; then
+      patchelf --add-needed libomp.so "${cpu_so}"
+    fi
+  fi
+
+  local hip_so="${unpack_dir}/torch/lib/libtorch_hip.so"
+  if [[ -f "${hip_so}" ]] \
+    && nm -D --undefined-only "${hip_so}" | rg -q "rsmi_init" \
+    && ! readelf -dW "${hip_so}" | rg -q "NEEDED.*librocm_smi64"; then
+    patchelf --add-needed librocm_smi64.so.1 "${hip_so}"
+  fi
 
   python3 - <<'PY' "${unpack_dir}" "${out_wheel}"
 import os
@@ -141,11 +159,20 @@ verify_wheel_runtime_contract() {
   if readelf -dW "${cpu_so}" | rg -q "NEEDED.*libomp"; then
     echo "Runtime check OK: libtorch_cpu.so depends on libomp."
   elif nm -D --undefined-only "${cpu_so}" | rg -q "__kmpc_"; then
-    echo "Runtime note: libtorch_cpu.so leaves __kmpc_* unresolved." >&2
-    echo "              Use the ROCm runtime env so /opt/rocm/lib/llvm/lib/libomp.so is on the loader path or preloaded." >&2
+    echo "Runtime check FAILED: libtorch_cpu.so leaves __kmpc_* unresolved without libomp." >&2
+    rm -rf "${tmp_dir}"
+    return 5
   else
-    echo "Runtime note: libtorch_cpu.so has no explicit libomp dependency." >&2
+    echo "Runtime note: libtorch_cpu.so has no OpenMP runtime dependency."
   fi
+
+  if nm -D --undefined-only "${hip_so}" | rg -q "rsmi_init" \
+    && ! readelf -dW "${hip_so}" | rg -q "NEEDED.*librocm_smi64"; then
+    echo "Runtime check FAILED: libtorch_hip.so references rsmi_init without librocm_smi64." >&2
+    rm -rf "${tmp_dir}"
+    return 6
+  fi
+  echo "Runtime check OK: libtorch_hip.so declares required SMI runtime if needed."
 
   if readelf -dW "${hip_so}" | rg -q "NEEDED.*libhipblaslt"; then
     echo "Runtime check FAILED: libtorch_hip.so still depends on libhipblaslt" >&2
@@ -206,11 +233,10 @@ if [[ -z "${SRC_WHEEL}" || ! -f "${SRC_WHEEL}" ]]; then
   exit 1
 fi
 
-verify_wheel_runtime_contract "${SRC_WHEEL}"
-
 PATCHED_WHEEL="$(mktemp --suffix=.whl)"
 sanitize_wheel_rpaths_for_system_rocm "${SRC_WHEEL}" "${PATCHED_WHEEL}"
 verify_wheel_system_rpath_contract "${PATCHED_WHEEL}"
+verify_wheel_runtime_contract "${PATCHED_WHEEL}"
 
 DEST_WHEEL="${DEST_DIR}/$(basename "${SRC_WHEEL}")"
 

@@ -355,6 +355,94 @@ def validate_torch_wheel_openmp_dependency(wheel_path: Path):
         print("+++ Wheel validation passed: libtorch_cpu.so depends on libomp")
 
 
+def repair_torch_wheel_rocm_runtime_linkage(wheel_path: Path) -> Path:
+    """Patch the torch wheel so ROCm runtime libraries are real ELF deps."""
+    print("+++ Repairing torch wheel ROCm runtime linkage")
+    repaired = wheel_path.with_name(f"{wheel_path.stem}.rocm-linked{wheel_path.suffix}")
+    with tempfile.TemporaryDirectory(prefix="torch-wheel-repair-") as td:
+        td_path = Path(td)
+        unpack_dir = td_path / "wheel"
+        with zipfile.ZipFile(wheel_path) as zf:
+            zf.extractall(unpack_dir)
+
+        torch_c_candidates = sorted((unpack_dir / "torch").glob("_C*.so"))
+        for torch_c in torch_c_candidates:
+            subprocess.check_call(
+                [
+                    "patchelf",
+                    "--force-rpath",
+                    "--set-rpath",
+                    "$ORIGIN:$ORIGIN/lib:/opt/rocm/lib:/opt/rocm/lib/llvm/lib",
+                    str(torch_c),
+                ]
+            )
+
+        torch_lib = unpack_dir / "torch" / "lib"
+        for so_path in sorted(torch_lib.glob("*.so*")):
+            if so_path.is_file():
+                subprocess.check_call(
+                    [
+                        "patchelf",
+                        "--force-rpath",
+                        "--set-rpath",
+                        "$ORIGIN:/opt/rocm/lib:/opt/rocm/lib/llvm/lib",
+                        str(so_path),
+                    ]
+                )
+
+        libtorch_cpu = torch_lib / "libtorch_cpu.so"
+        if libtorch_cpu.is_file():
+            readelf_out = subprocess.check_output(
+                ["readelf", "-dW", str(libtorch_cpu)], text=True
+            )
+            if "Shared library: [libgomp.so.1]" in readelf_out:
+                subprocess.check_call(
+                    [
+                        "patchelf",
+                        "--replace-needed",
+                        "libgomp.so.1",
+                        "libomp.so",
+                        str(libtorch_cpu),
+                    ]
+                )
+                readelf_out = subprocess.check_output(
+                    ["readelf", "-dW", str(libtorch_cpu)], text=True
+                )
+            undefined = subprocess.check_output(
+                ["nm", "-D", "--undefined-only", str(libtorch_cpu)],
+                text=True,
+                errors="replace",
+            )
+            if "__kmpc_" in undefined and "Shared library: [libomp.so]" not in readelf_out:
+                subprocess.check_call(["patchelf", "--add-needed", "libomp.so", str(libtorch_cpu)])
+
+        libtorch_hip = torch_lib / "libtorch_hip.so"
+        if libtorch_hip.is_file():
+            readelf_out = subprocess.check_output(
+                ["readelf", "-dW", str(libtorch_hip)], text=True
+            )
+            undefined = subprocess.check_output(
+                ["nm", "-D", "--undefined-only", str(libtorch_hip)],
+                text=True,
+                errors="replace",
+            )
+            if "rsmi_init" in undefined and "librocm_smi64" not in readelf_out:
+                subprocess.check_call(
+                    ["patchelf", "--add-needed", "librocm_smi64.so.1", str(libtorch_hip)]
+                )
+
+        with zipfile.ZipFile(repaired, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for root, _, files in os.walk(unpack_dir):
+                for name in files:
+                    full = Path(root) / name
+                    zf.write(full, full.relative_to(unpack_dir))
+
+    wheel_path.unlink()
+    repaired.rename(wheel_path)
+    print(f"+++ Repaired torch wheel in-place: {wheel_path}")
+    return wheel_path
+
+
 def install_built_wheel_with_fallback(wheel_path: Path, cwd: Path):
     """Install a wheel, retrying with --no-deps if dependency resolution fails."""
     install_cmd = [sys.executable, "-m", "pip", "install", wheel_path]
@@ -925,6 +1013,7 @@ for PyTorch >= 2.8. See status of issue https://github.com/ROCm/TheRock/issues/2
     built_wheel = find_built_wheel(pytorch_dir / "dist", "torch")
     print(f"Found built wheel: {built_wheel}")
     if not is_windows:
+        built_wheel = repair_torch_wheel_rocm_runtime_linkage(built_wheel)
         validate_torch_wheel_openmp_dependency(built_wheel)
     copy_to_output(args, built_wheel)
 
