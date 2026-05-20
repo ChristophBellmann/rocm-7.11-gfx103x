@@ -460,10 +460,10 @@ The helper validates the ROCm-critical runtime constraint before copying:
 
 It also reports whether `libtorch_cpu.so` declares `libomp` directly or expects
 the ROCm `libomp` runtime to be provided through the runtime environment
-(`LD_LIBRARY_PATH` / `LD_PRELOAD`).
+(`LD_LIBRARY_PATH` and patched wheel RPATHs).
 
 Current compatibility note:
-- this wheel is presently built against the NumPy 1.x ABI; use `numpy<2` in consuming venvs until the wheel is rebuilt for NumPy 2.x.
+- new custom PyTorch wheel families are built/probed with `numpy>=2,<3`; use `numpy<2` only for explicit legacy reproduction of old NumPy-1 ABI wheels.
 
 It also keeps two rollback layers:
 - destination directory backup under `.rocm_release/install-backups/<timestamp>/pytorch_wheels/`
@@ -540,17 +540,16 @@ export TF_ROCM_USE_HIPBLASLT=0
 export TF_ROCM_DISABLE_HIPBLASLT_INIT=1
 
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install --force-reinstall 'numpy<2' 'protobuf<7' \
+python -m pip install --force-reinstall 'numpy>=2,<3' 'protobuf<7' \
   /opt/rocm/wheels/tensorflow_rocm_custom/tensorflow-2.20.0.dev0+selfbuilt-cp312-cp312-linux_x86_64.whl
 ```
 
-Validated system smoke on **2026-03-08**:
+Validated NumPy-2 smoke on **2026-05-20**:
+- NumPy: `2.4.6`
 - TensorFlow: `2.20.0-dev0+selfbuilt`
-- Loaded ROCm runtime: `/opt/rocm/lib/libamdhip64.so.7.2.53150-1cedb43795`
-- Operation: `C = A * B` dense matmul
-- Shape: `4096 x 4096 x 4096`
-- Dtype: `fp16`
-- Throughput: `21.61 TFLOPS`
+- ROCm build: `tf.test.is_built_with_rocm() == True`
+- GPU visible: AMD Radeon RX 6700 XT
+- Operation: small GPU matmul smoke (`512 x 512`, `float32`)
 
 ### Install the promoted PyTorch wheel into a project venv
 
@@ -633,7 +632,7 @@ Note for `gfx1031`: `hipSPARSELt` is typically not shipped in this custom profil
 `hipBLASLt` is also disabled by default for this profile due reproducible runtime
 instability/segfaults on `gfx1031` in matrix workloads.
 The PyTorch helper now skips missing optional preload libs in `_rocm_init.py` (instead
-of failing import), while keeping required ROCm preloads and version checks.
+of failing import), while keeping required ROCm runtime path and version checks.
 
 ### Using ROCm 7.11 PyTorch in new Python projects (recommended)
 
@@ -648,7 +647,7 @@ cd /path/to/rocm-7.11-pytorch-gfx103x
   --rocm-prefix /opt/rocm
 . /path/to/project/.venv/bin/activate_rocm_pytorch.sh
 python -m pip install -U pip
-python -m pip install 'numpy<2' -r requirements.txt
+python -m pip install 'numpy>=2,<3' -r requirements.txt
 ```
 
 The helper resolves `/opt/rocm/wheels/pytorch_rocm711/torch-current.whl` to the real wheel file
@@ -660,7 +659,7 @@ It also writes:
 - `.venv/bin/activate_rocm_pytorch.sh`
 - `.venv/bin/python-rocm`
 
-Those wrappers carry the required ROCm runtime environment (`LD_LIBRARY_PATH`, `LD_PRELOAD`, `ROCM_PATH`) for this custom wheel.
+Those wrappers carry the required ROCm runtime environment (`LD_LIBRARY_PATH`, `ROCM_PATH`) for this custom wheel.
 
 GPU smoke:
 ```bash
