@@ -8,9 +8,11 @@ SRC_PREFIX="${SRC_PREFIX:-}"
 PREFIX="${PREFIX:-/opt/rocm}"
 PYTORCH_WHEEL="${PYTORCH_WHEEL:-}"
 ONNXRUNTIME_WHEEL="${ONNXRUNTIME_WHEEL:-}"
+TENSORFLOW_WHEEL="${TENSORFLOW_WHEEL:-}"
 DO_OPENCL_ICD=1
 DO_PYTORCH_WHEEL=1
 DO_ONNXRUNTIME_WHEEL=1
+DO_TENSORFLOW_WHEEL=1
 DO_DELETE=1
 DO_LDCONFIG=1
 DO_CHECK=1
@@ -45,6 +47,12 @@ Options:
                        (default: auto-discover in validation cache; best-effort)
   --no-onnxruntime-wheel
                        Do not copy the custom ONNX Runtime ROCm wheel
+  --tensorflow-wheel <path>
+                       Also copy this custom-built TensorFlow ROCm wheel into
+                       <prefix>/wheels/tensorflow_rocm_custom/
+                       (default: auto-discover in validation cache; best-effort)
+  --no-tensorflow-wheel
+                       Do not copy the custom TensorFlow ROCm wheel
   --no-opencl-icd       Do not install /etc/OpenCL/vendors/amdocl64.icd (OpenCL apps like DaVinci Resolve)
   --no-delete           Do not delete extra files in destination
   --no-ldconfig         Do not write /etc/ld.so.conf.d snippet, do not run ldconfig
@@ -128,6 +136,14 @@ while [[ $# -gt 0 ]]; do
       DO_ONNXRUNTIME_WHEEL=0
       shift
       ;;
+    --tensorflow-wheel)
+      TENSORFLOW_WHEEL="${2:-}"
+      shift 2
+      ;;
+    --no-tensorflow-wheel)
+      DO_TENSORFLOW_WHEEL=0
+      shift
+      ;;
     --no-opencl-icd)
       DO_OPENCL_ICD=0
       shift
@@ -196,6 +212,7 @@ echo "check  : $([[ ${DO_CHECK} -eq 1 ]] && echo yes || echo no)"
 echo "opencl icd: $([[ ${DO_OPENCL_ICD} -eq 1 ]] && echo yes || echo no)"
 echo "pytorch wheel: $([[ ${DO_PYTORCH_WHEEL} -eq 1 ]] && echo best-effort || echo no)"
 echo "onnxruntime wheel: $([[ ${DO_ONNXRUNTIME_WHEEL} -eq 1 ]] && echo best-effort || echo no)"
+echo "tensorflow wheel: $([[ ${DO_TENSORFLOW_WHEEL} -eq 1 ]] && echo best-effort || echo no)"
 echo ""
 
 if ! confirm "Proceed with install to '${PREFIX}'?"; then
@@ -282,8 +299,8 @@ if (( DO_PYTORCH_WHEEL )); then
     if (( DO_DRY_RUN )); then
       ${SUDO} rsync -a --dry-run --info=stats2 "${PYTORCH_WHEEL}" "${wheel_dir}/"
     else
-      ${SUDO} rsync -a --info=stats2 "${PYTORCH_WHEEL}" "${wheel_dir}/"
-      ${SUDO} ln -sfn "$(basename "${PYTORCH_WHEEL}")" "${wheel_dir}/torch-current.whl"
+      DEST_DIR="${wheel_dir}" \
+        "${ROOT}/validation/scripts/pytorch_rocm/install_pytorch_rocm_wheel_to_opt.sh" "${PYTORCH_WHEEL}"
     fi
   else
     echo ""
@@ -316,6 +333,33 @@ if (( DO_ONNXRUNTIME_WHEEL )); then
     echo "WARN: No custom ONNX Runtime ROCm wheel found. Skipping wheel copy."
     echo "      Build it via:"
     echo "        python3 validation/validate.py --profile onnxruntime --yes --log"
+  fi
+fi
+
+if (( DO_TENSORFLOW_WHEEL )); then
+  # Best-effort: copy a custom TensorFlow ROCm wheel built against this ROCm
+  # prefix for reproducible downstream venv installs.
+  if [[ -z "${TENSORFLOW_WHEEL}" ]]; then
+    TENSORFLOW_WHEEL="$(ls -1t "${ROOT}/validation/workspace/cache/wheels/tensorflow_rocm_custom"/tensorflow-*.whl 2>/dev/null | head -n 1 || true)"
+  fi
+  if [[ -n "${TENSORFLOW_WHEEL}" && -f "${TENSORFLOW_WHEEL}" ]]; then
+    wheel_dir="${PREFIX}/wheels/tensorflow_rocm_custom"
+    echo ""
+    echo "== TensorFlow wheel =="
+    echo "wheel  : ${TENSORFLOW_WHEEL}"
+    echo "dest   : ${wheel_dir}/"
+    ${SUDO} mkdir -p "${wheel_dir}"
+    if (( DO_DRY_RUN )); then
+      ${SUDO} rsync -a --dry-run --info=stats2 "${TENSORFLOW_WHEEL}" "${wheel_dir}/"
+    else
+      DEST_DIR="${wheel_dir}" \
+        "${ROOT}/validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh" "${TENSORFLOW_WHEEL}"
+    fi
+  else
+    echo ""
+    echo "WARN: No custom TensorFlow ROCm wheel found. Skipping wheel copy."
+    echo "      Build it via:"
+    echo "        DO_UPDATE=0 JOBS=12 validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh"
   fi
 fi
 
@@ -380,4 +424,11 @@ if (( DO_ONNXRUNTIME_WHEEL )); then
   echo "  ls -1 '${PREFIX}/wheels/onnxruntime_rocm711/'"
   echo "  python3 -m venv .venv && source .venv/bin/activate"
   echo "  python -m pip install '${PREFIX}/wheels/onnxruntime_rocm711/'/onnxruntime_rocm-*.whl"
+fi
+if (( DO_TENSORFLOW_WHEEL )); then
+  echo ""
+  echo "Custom TensorFlow ROCm wheel (if copied):"
+  echo "  ls -1 '${PREFIX}/wheels/tensorflow_rocm_custom/'"
+  echo "  python3 -m venv .venv && source .venv/bin/activate"
+  echo "  python -m pip install '${PREFIX}/wheels/tensorflow_rocm_custom/'/tensorflow-*.whl"
 fi
